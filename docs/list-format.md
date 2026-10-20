@@ -15,7 +15,7 @@ A SafeRoom blocklist is a plain text file in UTF-8. Each line holds one entry. T
 
 A bare name blocks the name and all names under it, because threat feeds expect that behavior.
 
-SafeRoom changes each name to lowercase and removes a trailing dot. Names can contain the letters a to z, the digits 0 to 9, the hyphen, and the underscore.
+SafeRoom changes each name to lowercase and removes a trailing dot. Names can contain the letters a to z, the digits 0 to 9, `-`, and `_`.
 
 ## Address entries
 
@@ -49,7 +49,7 @@ These lines are rejected:
 - A single label without `*.`, for example `com`. To block a whole top-level domain, write `*.com`. This rule stops a stray line from blocking a whole TLD by accident.
 - A label longer than 63 bytes, or a name longer than 253 bytes.
 - A CIDR prefix that is too long, for example `/33` for IPv4.
-- A line with two fields when the first field is not an IP address.
+- A two-field line whose first field is not an IP address.
 
 ## Example
 
