@@ -1,0 +1,76 @@
+# Generated with XcodeGen: `xcodegen generate` (or `make project`).
+#
+# The .xcodeproj is not committed, for the same reason as blaze-ios: a
+# project.pbxproj is generated, conflicts badly, and adding a source file here
+# is a one-line diff instead of a merge hazard.
+name: SafeRoom
+options:
+  bundleIdPrefix: com.oldsalt
+  deploymentTarget:
+    macOS: "15.0"
+  createIntermediateGroups: true
+
+packages:
+  SafeRoomCore:
+    path: .
+
+settings:
+  base:
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    DEVELOPMENT_TEAM: 346JJCHZP7
+    CODE_SIGN_STYLE: Automatic
+    # Notarization refuses anything without the hardened runtime.
+    ENABLE_HARDENED_RUNTIME: YES
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+
+targets:
+  SafeRoom:
+    type: application
+    platform: macOS
+    sources: [App/Sources]
+    dependencies:
+      # Embedding a system-extension target puts it in
+      # Contents/Library/SystemExtensions, which is the only place
+      # OSSystemExtensionRequest looks.
+      - target: SafeRoomDNSProxy
+    settings:
+      base:
+        PRODUCT_NAME: SafeRoom
+        PRODUCT_BUNDLE_IDENTIFIER: com.oldsalt.saferoom
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: SafeRoom
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.utilities
+        CODE_SIGN_ENTITLEMENTS: App/Resources/SafeRoom.entitlements
+
+  SafeRoomDNSProxy:
+    type: system-extension
+    platform: macOS
+    sources: [Extension/Sources]
+    dependencies:
+      - package: SafeRoomCore
+        product: SafeRoomCore
+    settings:
+      base:
+        # The extension's bundle ID must start with the app's.
+        PRODUCT_BUNDLE_IDENTIFIER: com.oldsalt.saferoom.dnsproxy
+        PRODUCT_NAME: com.oldsalt.saferoom.dnsproxy
+        PRODUCT_MODULE_NAME: SafeRoomDNSProxy
+        INFOPLIST_FILE: Extension/Resources/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Extension/Resources/DNSProxy.entitlements
+
+# Declared, shared scheme. Without it xcodegen deletes the per-user scheme on
+# every regeneration (see blaze-ios/project.yml).
+schemes:
+  SafeRoom:
+    build:
+      targets:
+        SafeRoom: all
+        SafeRoomDNSProxy: all
+    test:
+      targets:
+        - package: SafeRoomCore/SafeRoomCoreTests
+    archive:
+      config: Release
