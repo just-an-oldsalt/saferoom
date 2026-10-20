@@ -14,7 +14,7 @@ import SafeRoomCore
 /// Same threading rule as `UDPRelay`: all state on `queue`.
 final class TCPRelay: @unchecked Sendable {
     private let flow: NEAppProxyTCPFlow
-    private let store: BlocklistStore
+    private let filter: DNSFilter
     private let app: String
     private let queue = DispatchQueue(label: "com.oldsalt.saferoom.tcp")
     private var upstream: NWConnection?
@@ -22,9 +22,9 @@ final class TCPRelay: @unchecked Sendable {
     private var fromUpstream = DNSTCPFramer()
     private var closed = false
 
-    init(flow: NEAppProxyTCPFlow, store: BlocklistStore) {
+    init(flow: NEAppProxyTCPFlow, filter: DNSFilter) {
         self.flow = flow
-        self.store = store
+        self.filter = filter
         self.app = flow.metaData.sourceAppSigningIdentifier
     }
 
@@ -60,7 +60,7 @@ final class TCPRelay: @unchecked Sendable {
             queue.async { [self] in
                 guard !closed, error == nil, let data, !data.isEmpty else { return close() }
                 for message in fromClient.push(data) {
-                    switch store.current.decide(query: message) {
+                    switch filter.decide(query: message) {
                     case .block(let reply, let name, let type, let rule):
                         Log.blockedQuery(name: name, type: type, rule: rule, app: app, transport: "tcp")
                         writeToClient(reply)
@@ -79,7 +79,7 @@ final class TCPRelay: @unchecked Sendable {
             guard !closed else { return }
             if let data, !data.isEmpty {
                 for message in fromUpstream.push(data) {
-                    switch store.current.decide(response: message) {
+                    switch filter.decide(response: message) {
                     case .pass:
                         writeToClient(message)
                     case .block(let reply, let name, let reason):

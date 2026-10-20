@@ -28,6 +28,8 @@ SafeRoom changes each name to lowercase and removes a trailing dot. Names can co
 
 An address entry applies to DNS answers. SafeRoom reads the A records and the AAAA records in each answer. It also reads the `ipv4hint` and `ipv6hint` values in HTTPS and SVCB records, because browsers connect to those addresses. If one address is in a listed range, SafeRoom replaces the whole answer with NXDOMAIN.
 
+After SafeRoom blocks an answer because of its address, it blocks every record type for that name for five minutes. This matters for a host with both IPv4 and IPv6 addresses. If the list has only the IPv4 address, the A answer is blocked but the AAAA answer is not, and an app can connect over IPv6. The five-minute block stops the later lookups, but it cannot always stop the first one, because the system asks for A and AAAA at the same time. To block a host completely from the first lookup, list its domain, or list both its IPv4 and IPv6 ranges.
+
 An address entry does not block a direct connection to that address, because a direct connection does not use DNS.
 
 ## Aliases and the allowlist

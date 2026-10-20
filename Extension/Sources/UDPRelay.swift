@@ -16,7 +16,7 @@ import SafeRoomCore
 /// the `@unchecked Sendable` true.
 final class UDPRelay: @unchecked Sendable {
     private let flow: NEAppProxyUDPFlow
-    private let store: BlocklistStore
+    private let filter: DNSFilter
     private let app: String
     private let queue = DispatchQueue(label: "com.oldsalt.saferoom.udp")
     private var upstreams: [NWEndpoint: NWConnection] = [:]
@@ -28,9 +28,9 @@ final class UDPRelay: @unchecked Sendable {
     /// opens a new flow.
     static let idleTimeout: Duration = .seconds(30)
 
-    init(flow: NEAppProxyUDPFlow, store: BlocklistStore) {
+    init(flow: NEAppProxyUDPFlow, filter: DNSFilter) {
         self.flow = flow
-        self.store = store
+        self.filter = filter
         self.app = flow.metaData.sourceAppSigningIdentifier
     }
 
@@ -62,7 +62,7 @@ final class UDPRelay: @unchecked Sendable {
     }
 
     private func handleQuery(_ packet: [UInt8], to endpoint: NWEndpoint) {
-        switch store.current.decide(query: packet) {
+        switch filter.decide(query: packet) {
         case .block(let reply, let name, let type, let rule):
             Log.blockedQuery(name: name, type: type, rule: rule, app: app, transport: "udp")
             writeToClient(reply, from: endpoint)
@@ -101,7 +101,7 @@ final class UDPRelay: @unchecked Sendable {
     }
 
     private func handleResponse(_ packet: [UInt8], from endpoint: NWEndpoint) {
-        switch store.current.decide(response: packet) {
+        switch filter.decide(response: packet) {
         case .pass:
             writeToClient(packet, from: endpoint)
         case .block(let reply, let name, let reason):

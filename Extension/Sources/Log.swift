@@ -17,7 +17,7 @@ enum Log {
             "blocked query name=\(name, privacy: .public) type=\(type, privacy: .public) rule=\(rule, privacy: .public) app=\(app, privacy: .public) via=\(transport, privacy: .public)")
     }
 
-    static func blockedResponse(name: String, reason: Blocklist.Reason, app: String, transport: String) {
+    static func blockedResponse(name: String, reason: DNSFilter.Reason, app: String, transport: String) {
         let detail: String
         switch reason {
         case .alias(let target, let rule): detail = "alias=\(target) rule=\(rule)"

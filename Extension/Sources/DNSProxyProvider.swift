@@ -11,7 +11,7 @@ import SafeRoomCore
 /// query is forwarded. A crash is not covered. While launchd restarts the
 /// extension, queries in that gap fail (docs/threat-model.md).
 final class DNSProxyProvider: NEDNSProxyProvider, NEAppProxyUDPFlowHandling, @unchecked Sendable {
-    private let store = BlocklistStore()
+    private let filter = DNSFilter(store: BlocklistStore())
     private var loader: ListLoader?
 
     // Completion-handler forms, not the async overrides: the async ones pass a
@@ -34,7 +34,7 @@ final class DNSProxyProvider: NEDNSProxyProvider, NEAppProxyUDPFlowHandling, @un
             let config = manager.providerProtocol?.providerConfiguration ?? [:]
             let policy = ProviderPolicy(config)
             Log.provider.notice("policy: listPath=\(policy.listPath, privacy: .public) allow=\(policy.allowList.count) neverBlockHosts=\(policy.neverBlockHosts.count)")
-            let loader = ListLoader(policy: policy, store: store)
+            let loader = ListLoader(policy: policy, store: filter.store)
             self.loader = loader
             loader.start()
             // Never fail the start because of the list: fail-open.
@@ -51,13 +51,13 @@ final class DNSProxyProvider: NEDNSProxyProvider, NEAppProxyUDPFlowHandling, @un
     }
 
     func handleNewUDPFlow(_ flow: NEAppProxyUDPFlow, initialRemoteFlowEndpoint remoteEndpoint: NWEndpoint) -> Bool {
-        UDPRelay(flow: flow, store: store).start()
+        UDPRelay(flow: flow, filter: filter).start()
         return true
     }
 
     override func handleNewFlow(_ flow: NEAppProxyFlow) -> Bool {
         guard let tcp = flow as? NEAppProxyTCPFlow else { return false }
-        TCPRelay(flow: tcp, store: store).start()
+        TCPRelay(flow: tcp, filter: filter).start()
         return true
     }
 }
