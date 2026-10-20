@@ -24,8 +24,14 @@ public struct CompiledList: Sendable, Equatable {
     }
 
     public init(source: some Collection<UInt8>) {
+        self = Self.compile(source).list
+    }
+
+    /// Compiles and also returns the first rejected lines, for the log.
+    public static func compile(_ source: some Collection<UInt8>) -> (list: CompiledList, invalid: [InvalidLine]) {
         let parsed = ListParser.parse(source)
-        self.init(parsed: parsed, sourceSHA256: Array(SHA256.hash(data: Data(source))))
+        let list = CompiledList(parsed: parsed, sourceSHA256: Array(SHA256.hash(data: Data(source))))
+        return (list, parsed.invalidSamples)
     }
 
     public init(parsed: ParsedList, sourceSHA256: [UInt8]) {

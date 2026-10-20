@@ -258,3 +258,20 @@ extension Substring {
         return self[start...end]
     }
 }
+
+extension IPAddress: CustomStringConvertible {
+    public var description: String {
+        switch self {
+        case .v4(let a):
+            return "\(a >> 24).\(a >> 16 & 0xFF).\(a >> 8 & 0xFF).\(a & 0xFF)"
+        case .v6(let a):
+            var bytes = in6_addr()
+            withUnsafeMutableBytes(of: &bytes) { raw in
+                for i in 0..<16 { raw[i] = UInt8(truncatingIfNeeded: a >> (8 * (15 - i))) }
+            }
+            var text = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
+            inet_ntop(AF_INET6, &bytes, &text, socklen_t(text.count))
+            return String(decoding: text.prefix(while: { $0 != 0 }).map { UInt8(bitPattern: $0) }, as: UTF8.self)
+        }
+    }
+}

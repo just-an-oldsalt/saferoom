@@ -11,6 +11,13 @@
 	</array>
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
+	<!-- Read-only access to the folder MDM puts the local list in. A system
+	     extension must be sandboxed; this is the one path it may read
+	     outside its container. ProviderPolicy.defaultListPath is in it. -->
+	<key>com.apple.security.temporary-exception.files.absolute-path.read-only</key>
+	<array>
+		<string>/Library/Application Support/SafeRoom/</string>
+	</array>
 	<key>com.apple.security.network.client</key>
 	<true/>
 	<key>com.apple.security.network.server</key>

@@ -10,7 +10,7 @@ import SystemExtensions
 @Observable
 @MainActor
 final class ExtensionActivator: NSObject {
-    static let extensionID = "com.oldsalt.saferoom.dnsproxy"
+    nonisolated static let extensionID = "com.oldsalt.saferoom.dnsproxy"
 
     private(set) var state = "Not requested"
 

@@ -3,11 +3,15 @@ import SwiftUI
 @main
 struct SafeRoomApp: App {
     @State private var activator = ExtensionActivator()
+    @State private var proxy = ProxyConfigurator()
 
     var body: some Scene {
         WindowGroup {
-            StatusView(activator: activator)
-                .task { activator.activate() }
+            StatusView(activator: activator, proxy: proxy)
+                .task {
+                    activator.activate()
+                    proxy.refresh()
+                }
         }
         .windowResizability(.contentSize)
     }
@@ -15,12 +19,20 @@ struct SafeRoomApp: App {
 
 struct StatusView: View {
     let activator: ExtensionActivator
+    let proxy: ProxyConfigurator
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("SafeRoom").font(.largeTitle.bold())
-            Text(activator.state).font(.body.monospaced())
-            Button("Activate extension") { activator.activate() }
+            LabeledContent("Extension", value: activator.state)
+            LabeledContent("DNS proxy", value: proxy.state)
+            HStack {
+                Button("Activate extension") { activator.activate() }
+                Button("Enable DNS proxy") { proxy.setEnabled(true) }
+                Button("Disable") { proxy.setEnabled(false) }
+            }
+            Text("Under MDM, the profile enables the proxy. These buttons are for testing.")
+                .font(.caption).foregroundStyle(.secondary)
         }
         .padding(24)
         .frame(minWidth: 380)
