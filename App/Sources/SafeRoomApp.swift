@@ -10,6 +10,7 @@ struct SafeRoomApp: App {
             StatusView(activator: activator, proxy: proxy)
                 .task {
                     activator.activate()
+                    proxy.applyTestPolicy()
                     proxy.refresh()
                 }
         }

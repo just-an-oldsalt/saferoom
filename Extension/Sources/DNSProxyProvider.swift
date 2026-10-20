@@ -3,6 +3,7 @@ import Network
 // NetworkExtension predates Sendable; its callbacks are safe to capture here.
 @preconcurrency import NetworkExtension
 import SafeRoomCore
+import Synchronization
 
 /// The system extension's entry point. It only routes: flows go to a relay,
 /// decisions come from `Blocklist.decide` in SafeRoomCore.
@@ -12,7 +13,9 @@ import SafeRoomCore
 /// extension, queries in that gap fail (docs/threat-model.md).
 final class DNSProxyProvider: NEDNSProxyProvider, NEAppProxyUDPFlowHandling, @unchecked Sendable {
     private let filter = DNSFilter(store: BlocklistStore())
-    private var loader: ListLoader?
+    /// Written by startProxy and read by stopProxy, which can run on
+    /// different threads.
+    private let loader = Mutex<ListLoader?>(nil)
 
     // Completion-handler forms, not the async overrides: the async ones pass a
     // non-Sendable [String: Any] across an isolation boundary, which Swift 6
@@ -22,24 +25,19 @@ final class DNSProxyProvider: NEDNSProxyProvider, NEAppProxyUDPFlowHandling, @un
         completionHandler: @escaping (Error?) -> Void
     ) {
         Log.provider.notice("startProxy")
-        // A DNS proxy provider has no protocolConfiguration property. The
-        // configuration, MDM's included, is read through the shared manager.
-        let manager = NEDNSProxyManager.shared()
-        // NetworkExtension accepts this call from any thread.
-        nonisolated(unsafe) let completionHandler = completionHandler
-        manager.loadFromPreferences { [self] error in
-            if let error {
-                Log.provider.error("cannot load configuration, using defaults: \(error.localizedDescription, privacy: .public)")
-            }
-            let config = manager.providerProtocol?.providerConfiguration ?? [:]
-            let policy = ProviderPolicy(config)
-            Log.provider.notice("policy: listPath=\(policy.listPath, privacy: .public) allow=\(policy.allowList.count) neverBlockHosts=\(policy.neverBlockHosts.count)")
-            let loader = ListLoader(policy: policy, store: filter.store)
-            self.loader = loader
-            loader.start()
-            // Never fail the start because of the list: fail-open.
-            completionHandler(nil)
-        }
+        // The payload's ProviderConfiguration arrives here, under VendorData.
+        // NEDNSProxyManager.shared() does NOT return it in a system
+        // extension: that manager belongs to the extension's own bundle ID,
+        // and its configuration is empty. The policy is read once per start;
+        // a changed configuration takes effect when the proxy restarts.
+        let policy = ProviderPolicy(options?["VendorData"] as? [String: Any] ?? [:])
+        Log.provider.notice(
+            "policy: listURL=\(policy.listURL?.absoluteString ?? "none", privacy: .public) listPath=\(policy.listPath, privacy: .public) sha256URL=\(policy.listSHA256URL != nil) auth=\(policy.auth.description, privacy: .public) refresh=\(policy.refreshInterval.components.seconds)s maxChange=\(policy.maxChangePercent)% allow=\(policy.allowList.count) neverBlockHosts=\(policy.neverBlockHosts.count)")
+        let loader = ListLoader(policy: policy, store: filter.store)
+        self.loader.withLock { $0 = loader }
+        Task { await loader.start() }
+        // Never fail the start because of the list: fail-open.
+        completionHandler(nil)
     }
 
     override func stopProxy(
@@ -47,6 +45,7 @@ final class DNSProxyProvider: NEDNSProxyProvider, NEAppProxyUDPFlowHandling, @un
         completionHandler: @escaping () -> Void
     ) {
         Log.provider.notice("stopProxy reason=\(reason.rawValue, privacy: .public)")
+        if let loader = loader.withLock({ $0 }) { Task { await loader.stop() } }
         completionHandler()
     }
 

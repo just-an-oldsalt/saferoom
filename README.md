@@ -10,11 +10,15 @@ The name comes from Dungeon Crawler Carl. In the dungeon, a safe room is the one
 
 ## Status
 
-This project is in early development. The proxy blocks domains and address ranges from a local list file, over UDP and TCP, and it logs each block with the app that asked. On a test Mac, a list of 250,000 domains uses 2.2 MB of memory, and a lookup takes about 140 nanoseconds.
+This project is in early development. The proxy blocks domains and address ranges, over UDP and TCP, and it logs each block with the app that asked. It downloads its list from an HTTPS URL with a bearer token, rejects suspect lists, and keeps the last good list on any failure. On a test Mac, a list of 250,000 domains uses 2.2 MB of memory, and a lookup takes about 140 nanoseconds.
 
-These parts do not exist yet: the list download from a URL, the full MDM policy, the status display in the app, and the sample MDM profiles.
+These parts do not exist yet: the status display in the app and the sample MDM profiles. The client certificate (mTLS) download is built but not tested.
 
-The list format is in [docs/list-format.md](docs/list-format.md).
+## Documentation
+
+- [docs/list-format.md](docs/list-format.md): the blocklist format.
+- [docs/mdm.md](docs/mdm.md): the MDM policy keys and the update rules.
+- [docs/mtls-okta.md](docs/mtls-okta.md): the client certificate download, and its open risks.
 
 ## Requirements
 

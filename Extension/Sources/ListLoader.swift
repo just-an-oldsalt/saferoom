@@ -1,42 +1,148 @@
-import CryptoKit
 import Foundation
 import SafeRoomCore
 
-/// Puts a list into the store, and keeps a compiled copy on disk.
+/// Keeps the store's list current.
 ///
-/// Start-up order: the cache first, which takes under a millisecond, so the
-/// proxy blocks from its first query. Then the list file, compiled in the
-/// background. Any failure leaves the current list in place; with no list at
-/// all, every query passes (fail-open).
-///
-/// Phase 5 adds the URL fetch, the refresh timer, and the sanity checks.
-final class ListLoader: Sendable {
+/// Start-up: the cached compiled list first, which takes under a millisecond,
+/// so the proxy blocks from its first query. Then a refresh loop: download
+/// (or read the local file), check with `ListUpdate`, install, write the
+/// cache, sleep. Failures retry with backoff and keep the current list.
+/// With no list at all, every query passes (fail-open).
+actor ListLoader {
     let policy: ProviderPolicy
     let store: BlocklistStore
+    private let fetcher: ListFetcher
+    private var current: CompiledList?
+    private var failures = 0
+    private var loop: Task<Void, Never>?
 
     init(policy: ProviderPolicy, store: BlocklistStore) {
         self.policy = policy
         self.store = store
-    }
-
-    static var cacheURL: URL? {
-        FileManager.default
-            .containerURL(forSecurityApplicationGroupIdentifier: SafeRoom.appGroup)?
-            .appendingPathComponent("blocklist.cache")
+        self.fetcher = ListFetcher(policy: policy)
     }
 
     func start() {
-        let cached = loadCache()
-        if let cached {
-            install(cached, from: "cache")
+        if let cached = Self.loadCache() {
+            install(cached, invalid: [], from: "cache")
         }
-        DispatchQueue.global(qos: .utility).async { [self] in
-            loadFile(skipping: cached?.sourceSHA256)
+        loop = Task { await run() }
+    }
+
+    func stop() {
+        loop?.cancel()
+    }
+
+    private func run() async {
+        while !Task.isCancelled {
+            let ok = await refresh()
+            failures = ok ? 0 : failures + 1
+            let delay = ok ? policy.refreshInterval : retryDelay(afterFailures: failures, refresh: policy.refreshInterval)
+            if !ok { Log.list.notice("retrying in \(delay.components.seconds)s (failure \(self.failures))") }
+            try? await Task.sleep(for: delay)
         }
     }
 
-    private func loadCache() -> CompiledList? {
-        guard let url = Self.cacheURL, let data = try? Data(contentsOf: url) else { return nil }
+    /// True when the current list is the newest one available, even if that
+    /// means nothing changed.
+    private func refresh() async -> Bool {
+        guard let url = policy.listURL else { return loadFile() }
+        if await fetch(url) { return true }
+        // The URL failed. With nothing loaded at all, the local file is better
+        // than an empty list. With a list loaded, keep it: it is newer.
+        if current == nil, FileManager.default.fileExists(atPath: policy.listPath) {
+            Log.list.notice("falling back to \(self.policy.listPath, privacy: .public)")
+            _ = loadFile()
+        }
+        return false
+    }
+
+    private func fetch(_ url: URL) async -> Bool {
+        var state = Self.loadFetchState()
+        if state.url != url.absoluteString { state = FetchState(url: url.absoluteString) }
+        do {
+            // Conditional headers only when a list is loaded. A 304 with no
+            // list in memory would leave the proxy with nothing to install.
+            let response = try await fetcher.fetch(url, state: current == nil ? nil : state)
+            var expected: String?
+            if response.status == 200, let hashURL = policy.listSHA256URL {
+                let hash = try await fetcher.fetch(hashURL, state: nil)
+                guard hash.status == 200 else {
+                    Log.list.error("SHA-256 download failed: HTTP status \(hash.status)")
+                    return false
+                }
+                expected = String(decoding: hash.body, as: UTF8.self)
+            }
+            let accepted = apply(
+                ListUpdate.evaluate(
+                    status: response.status, body: response.body, expectedSHA256: expected,
+                    current: current, policy: policy),
+                source: url.absoluteString)
+            if accepted, response.status == 200 {
+                state.etag = response.etag
+                state.lastModified = response.lastModified
+                Self.saveFetchState(state)
+            }
+            return accepted
+        } catch {
+            // URLError's full description is a page of nested user-info.
+            let text = (error as? URLError).map { "\($0.localizedDescription) (URLError \($0.code.rawValue))" }
+                ?? String(describing: error)
+            Log.list.error("download failed: \(text, privacy: .public)")
+            return false
+        }
+    }
+
+    private func loadFile() -> Bool {
+        let path = policy.listPath
+        do {
+            let body = try Data(contentsOf: URL(fileURLWithPath: path))
+            return apply(
+                ListUpdate.evaluate(status: 200, body: body, expectedSHA256: nil, current: current, policy: policy),
+                source: path)
+        } catch {
+            Log.list.error("cannot read \(path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return false
+        }
+    }
+
+    /// True unless the update was rejected.
+    private func apply(_ outcome: ListUpdate.Outcome, source: String) -> Bool {
+        switch outcome {
+        case .unchanged:
+            Log.list.info("\(source, privacy: .public) unchanged")
+            return true
+        case .accept(let list, let invalid):
+            install(list, invalid: invalid, from: source)
+            Self.writeCache(list)
+            return true
+        case .reject(let reason):
+            Log.list.error("rejected \(source, privacy: .public): \(reason.description, privacy: .public); keeping the current list")
+            return false
+        }
+    }
+
+    private func install(_ list: CompiledList, invalid: [InvalidLine], from source: String) {
+        current = list
+        store.replace(policy.blocklist(list))
+        let s = list.stats
+        Log.list.notice(
+            "loaded from \(source, privacy: .public): \(s.domainRules) domains, \(s.v4Ranges) v4 ranges, \(s.v6Ranges) v6 ranges, \(s.invalidCount) invalid lines, \(list.byteSize / 1024) KiB")
+        for sample in invalid.prefix(10) {
+            Log.list.error("line \(sample.line): \(sample.reason, privacy: .public): \(sample.text, privacy: .public)")
+        }
+    }
+
+    // MARK: - Files in the app group container
+
+    private static var container: URL? {
+        FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: SafeRoom.appGroup)
+    }
+
+    private static func loadCache() -> CompiledList? {
+        guard let url = container?.appendingPathComponent("blocklist.cache"),
+              let data = try? Data(contentsOf: url)
+        else { return nil }
         do {
             return try CompiledList(cache: data)
         } catch {
@@ -45,41 +151,29 @@ final class ListLoader: Sendable {
         }
     }
 
-    private func loadFile(skipping knownSHA: [UInt8]?) {
-        let path = policy.listPath
-        let data: Data
-        do {
-            data = try Data(contentsOf: URL(fileURLWithPath: path))
-        } catch {
-            Log.list.error("cannot read \(path, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            return
-        }
-        if Array(SHA256.hash(data: data)) == knownSHA {
-            Log.list.info("\(path, privacy: .public) unchanged since the cache was written")
-            return
-        }
-        let (list, invalid) = CompiledList.compile(data)
-        install(list, from: path)
-        for sample in invalid.prefix(10) {
-            Log.list.error("line \(sample.line): \(sample.reason, privacy: .public): \(sample.text, privacy: .public)")
-        }
-        writeCache(list)
+    private static func writeCache(_ list: CompiledList) {
+        write(list.serialized(), to: "blocklist.cache")
     }
 
-    private func install(_ list: CompiledList, from source: String) {
-        store.replace(policy.blocklist(list))
-        let s = list.stats
-        Log.list.notice(
-            "loaded from \(source, privacy: .public): \(s.domainRules) domains, \(s.v4Ranges) v4 ranges, \(s.v6Ranges) v6 ranges, \(s.invalidCount) invalid lines, \(list.byteSize / 1024) KiB")
+    private static func loadFetchState() -> FetchState {
+        guard let url = container?.appendingPathComponent("fetch-state.json"),
+              let data = try? Data(contentsOf: url),
+              let state = try? JSONDecoder().decode(FetchState.self, from: data)
+        else { return FetchState() }
+        return state
     }
 
-    private func writeCache(_ list: CompiledList) {
-        guard let url = Self.cacheURL else { return }
+    private static func saveFetchState(_ state: FetchState) {
+        if let data = try? JSONEncoder().encode(state) { write(data, to: "fetch-state.json") }
+    }
+
+    private static func write(_ data: Data, to name: String) {
+        guard let url = container?.appendingPathComponent(name) else { return }
         do {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try list.serialized().write(to: url, options: .atomic)
+            try data.write(to: url, options: .atomic)
         } catch {
-            Log.list.error("cannot write cache: \(error.localizedDescription, privacy: .public)")
+            Log.list.error("cannot write \(name, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
     }
 }
