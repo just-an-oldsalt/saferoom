@@ -34,6 +34,7 @@ make test      # SafeRoomCore unit tests. Needs no signing.
 make open      # Generate SafeRoom.xcodeproj and open it in Xcode.
 make release   # Archive, sign with Developer ID, notarize and staple.
 make package   # Signed, notarized installer package for MDM.
+make bench     # The list engine at several sizes (see docs/performance.md).
 ```
 
 `make release` needs a Developer ID certificate, the Developer ID provisioning profiles, and a `notarytool` keychain profile. To build under your organization, change the two lines in `Config/Identity.xcconfig` and follow [docs/building.md](docs/building.md).

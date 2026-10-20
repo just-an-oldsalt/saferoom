@@ -1,6 +1,6 @@
 # SafeRoom. The .xcodeproj is generated from project.yml and not committed,
 # so `make open` is the way in.
-.PHONY: open project test app release package clean
+.PHONY: open project test app release package bench clean
 
 ## Generate the project and open it.
 open: project
@@ -35,6 +35,15 @@ release:
 ## Installer package for MDM, from the release app.
 package:
 	tools/package.sh
+
+## The scale benchmark behind docs/performance.md: one process per size.
+BENCH_SIZES ?= 250000:1692 1000000:1692 3000000:1692 5000000:1692 250000:100000 250000:1000000
+
+bench:
+	swift build -c release --package-path Benchmarks --scratch-path "$(HOME)/Library/Caches/saferoom/bench"
+	@for s in $(BENCH_SIZES); do \
+		"$$(swift build -c release --package-path Benchmarks --scratch-path "$(HOME)/Library/Caches/saferoom/bench" --show-bin-path)/bench" $${s%%:*} $${s##*:}; \
+	done
 
 clean:
 	rm -rf SafeRoom.xcodeproj .build

@@ -10,3 +10,6 @@ xcuserdata/
 
 # Local signing settings (Config/signing.local.example explains them).
 Config/signing.local
+
+# Benchmark build output
+Benchmarks/.build/
