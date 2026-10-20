@@ -5,7 +5,11 @@ import Foundation
 /// typo in a profile must not stop the proxy from starting. docs/mdm.md lists
 /// every key.
 public struct ProviderPolicy: Sendable, Equatable {
-    public static let defaultListPath = "/Library/Application Support/SafeRoom/blocklist.txt"
+    /// The local list must be inside this root-owned folder. The extension's
+    /// sandbox can read nothing else, and a path elsewhere could point at a
+    /// file a standard user can edit.
+    public static let listFolder = "/Library/Application Support/SafeRoom/"
+    public static let defaultListPath = listFolder + "blocklist.txt"
 
     /// HTTPS URL of the list. When set, it is the primary source.
     public var listURL: URL?
@@ -42,16 +46,21 @@ public struct ProviderPolicy: Sendable, Equatable {
     public init() {}
 
     public init(_ config: [String: Any]) {
-        if let path = config["ListPath"] as? String, path.hasPrefix("/") { listPath = path }
+        if let path = config["ListPath"] as? String, path.hasPrefix(Self.listFolder),
+           !path.split(separator: "/").contains("..") {
+            listPath = path
+        }
         listURL = Self.url(config["ListURL"])
         listSHA256URL = Self.url(config["ListSHA256URL"])
         allowList = Self.rules(config["AllowList"])
         neverBlockHosts = Self.rules(config["NeverBlockHosts"]).map(\.name)
+        // Every number is clamped: an absurd profile value must not overflow
+        // arithmetic and crash the extension on every refresh.
         if let seconds = Self.int(config["RefreshSeconds"]) {
-            refreshInterval = max(.seconds(seconds), Self.minimumRefresh)
+            refreshInterval = .seconds(min(max(seconds, 300), 7 * 86_400))
         }
-        if let percent = Self.int(config["MaxChangePercent"]), percent >= 0 { maxChangePercent = percent }
-        if let megabytes = Self.int(config["MaxListMegabytes"]), megabytes > 0 { maxListBytes = megabytes << 20 }
+        if let percent = Self.int(config["MaxChangePercent"]) { maxChangePercent = min(max(percent, 0), 10_000) }
+        if let megabytes = Self.int(config["MaxListMegabytes"]) { maxListBytes = min(max(megabytes, 1), 1024) << 20 }
         auth = Self.auth(config["Auth"])
     }
 

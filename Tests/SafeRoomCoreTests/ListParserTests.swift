@@ -95,6 +95,25 @@ private func rule(_ name: String, _ match: DomainMatch = .subtree) -> DomainRule
         #expect(parsed.invalidSamples.first?.line == 2)
     }
 
+    /// The review's silent failure: a CRLF file used to parse as one line.
+    @Test func windowsLineEndings() {
+        let parsed = ListParser.parse("# header\r\nevil.com\r\n=x.net\r\n198.51.100.0/24\r\n")
+        #expect(parsed.domains.map(\.name) == ["evil.com", "x.net"])
+        #expect(parsed.cidrs.count == 1)
+        #expect(parsed.invalidCount == 0)
+    }
+
+    @Test func overlongLineIsRejectedUnread() {
+        let parsed = ListParser.parse(String(repeating: "a ", count: 10_000) + "\nevil.com")
+        #expect(parsed.domains.map(\.name) == ["evil.com"])
+        #expect(parsed.invalidCount == 1)
+    }
+
+    @Test func manyEmptyLinesStayCheap() {
+        let parsed = ListParser.parse([UInt8](repeating: 0x0A, count: 5_000_000))
+        #expect(parsed.domains.isEmpty && parsed.lineCount == 5_000_000)
+    }
+
     @Test func samplesAreCapped() {
         let text = Array(repeating: "bad..com", count: 500).joined(separator: "\n")
         let parsed = ListParser.parse(text)

@@ -28,7 +28,7 @@ enum ControlClient {
         nonisolated(unsafe) let connection = NSXPCConnection(
             machServiceName: ControlChannel.machServiceName, options: .privileged)
         connection.remoteObjectInterface = NSXPCInterface(with: SafeRoomControl.self)
-        connection.setCodeSigningRequirement(ControlChannel.teamRequirement)
+        connection.setCodeSigningRequirement(ControlChannel.extensionRequirement)
         connection.resume()
 
         // Error handler, reply, and timeout race; the first one wins.

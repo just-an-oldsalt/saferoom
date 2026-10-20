@@ -133,7 +133,9 @@ extension CompiledList {
 
         // Bound the counts first, so the size arithmetic below cannot overflow.
         let limit: UInt64 = 1 << 32
-        guard domainCount < limit, v4Count < limit, v6Count < limit else { throw .malformed }
+        guard domainCount < limit, v4Count < limit, v6Count < limit,
+              lineCount < limit, invalidCount < limit
+        else { throw .malformed }
         let expected = UInt64(headerSize) + domainCount * 9 + v4Count * 8 + v6Count * 32
         guard expected == UInt64(body.count) else { throw .malformed }
 

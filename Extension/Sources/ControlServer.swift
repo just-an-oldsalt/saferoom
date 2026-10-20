@@ -15,7 +15,7 @@ final class ControlServer: NSObject, NSXPCListenerDelegate, @unchecked Sendable 
     /// What the server needs from the running proxy.
     struct Source: Sendable {
         let status: @Sendable () async -> ExtensionStatus
-        let refreshNow: @Sendable () async -> Void
+        let refreshNow: @Sendable () async -> Bool
     }
 
     private let source = Mutex<Source?>(nil)
@@ -24,7 +24,7 @@ final class ControlServer: NSObject, NSXPCListenerDelegate, @unchecked Sendable 
     func start() {
         // Only code signed by our team may connect. macOS checks this before
         // the delegate sees the connection.
-        listener.setConnectionCodeSigningRequirement(ControlChannel.teamRequirement)
+        listener.setConnectionCodeSigningRequirement(ControlChannel.appRequirement)
         listener.delegate = self
         listener.resume()
         Log.provider.notice("control listener on \(ControlChannel.machServiceName, privacy: .public)")
@@ -36,7 +36,8 @@ final class ControlServer: NSObject, NSXPCListenerDelegate, @unchecked Sendable 
 
     func listener(_ listener: NSXPCListener, shouldAcceptNewConnection connection: NSXPCConnection) -> Bool {
         connection.exportedInterface = NSXPCInterface(with: SafeRoomControl.self)
-        connection.exportedObject = Handler(server: self)
+        connection.exportedObject = Handler(
+            server: self, caller: "uid=\(connection.effectiveUserIdentifier) pid=\(connection.processIdentifier)")
         connection.resume()
         return true
     }
@@ -45,8 +46,12 @@ final class ControlServer: NSObject, NSXPCListenerDelegate, @unchecked Sendable 
 
     private final class Handler: NSObject, SafeRoomControl, Sendable {
         let server: ControlServer
+        let caller: String
 
-        init(server: ControlServer) { self.server = server }
+        init(server: ControlServer, caller: String) {
+            self.server = server
+            self.caller = caller
+        }
 
         func status(reply: @escaping (Data) -> Void) {
             nonisolated(unsafe) let reply = reply
@@ -59,8 +64,10 @@ final class ControlServer: NSObject, NSXPCListenerDelegate, @unchecked Sendable 
         func refreshNow(reply: @escaping (Data) -> Void) {
             nonisolated(unsafe) let reply = reply
             let source = server.current()
+            let caller = self.caller
             Task {
-                await source?.refreshNow()
+                let ran = await source?.refreshNow() ?? false
+                Log.provider.notice("refresh requested by \(caller, privacy: .public): \(ran ? "ran" : "refused (too soon or already running)", privacy: .public)")
                 reply(await Self.encode(source?.status()))
             }
         }

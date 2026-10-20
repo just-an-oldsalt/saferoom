@@ -160,7 +160,8 @@ extension ExtensionStatus {
         if consecutiveFailures > 0, let lastAttempt {
             parts.append("\(consecutiveFailures) failed: \(lastAttempt.detail ?? lastAttempt.result.rawValue)")
         }
-        return parts.isEmpty ? health.rawValue : "\(health.rawValue): \(parts.joined(separator: ", "))"
+        parts.append("version \(version)")
+        return "\(health.rawValue): \(parts.joined(separator: ", "))"
     }
 
     static func stamp(_ date: Date) -> String {

@@ -145,9 +145,12 @@ private enum Captured {
         #expect(DNSMessage.question(p) == nil)
     }
 
-    @Test func forwardPointerIsRejected() {
-        let p = DNSMessage.be(1) + [1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0xC0, 20, 0, 1, 0, 1, 0, 0, 0, 0]
-        #expect(DNSMessage.question(p) == nil)
+    /// The review's bypass: a question name that is a forward pointer. It
+    /// used to be refused unread, so the query went upstream unchecked.
+    @Test func forwardPointerIsRead() throws {
+        let p: [UInt8] = [0x12, 0x34, 0x01, 0x00, 0, 1, 0, 0, 0, 0, 0, 0, 0xC0, 0x12, 0, 1, 0, 1]
+            + [4] + Array("evil".utf8) + [3] + Array("com".utf8) + [0]
+        #expect(try #require(DNSMessage.question(p)).nameString == "evil.com")
     }
 
     @Test func overlongNameIsRejected() {

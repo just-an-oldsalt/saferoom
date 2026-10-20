@@ -11,6 +11,11 @@ import SafeRoomCore
 /// answer gets the same checks as over UDP. Clients fall back to TCP for large
 /// answers, and a TCP path that skipped the checks would be a bypass.
 ///
+/// Backpressure: each side is read again only after everything from its last
+/// read was written to the other side. A client that writes fast to a stalled
+/// upstream, or reads slowly, therefore holds at most one read's worth of
+/// data in this process, instead of an unbounded queue.
+///
 /// Same threading rule as `UDPRelay`: all state on `queue`.
 final class TCPRelay: @unchecked Sendable {
     private let flow: NEAppProxyTCPFlow
@@ -41,6 +46,11 @@ final class TCPRelay: @unchecked Sendable {
                     case .failed(let error):
                         Log.flow.error("tcp upstream failed: \(error.localizedDescription, privacy: .public)")
                         close()
+                    case .waiting(let error):
+                        // An upstream that cannot connect would otherwise hold
+                        // the client's queries forever.
+                        Log.flow.error("tcp upstream waiting: \(error.localizedDescription, privacy: .public)")
+                        close()
                     case .cancelled:
                         close()
                     default:
@@ -59,17 +69,19 @@ final class TCPRelay: @unchecked Sendable {
         flow.readData { [self] data, error in
             queue.async { [self] in
                 guard !closed, error == nil, let data, !data.isEmpty else { return close() }
+                let pending = DispatchGroup()
                 for message in fromClient.push(data) {
                     switch filter.decide(query: message) {
                     case .block(let reply, let name, let type, let rule):
                         Log.blockedQuery(name: name, type: type, rule: rule, app: app, transport: "tcp")
-                        writeToClient(reply)
+                        writeToClient(reply, pending)
                     case .forward:
-                        guard let framed = DNSTCPFramer.frame(message) else { continue }
-                        upstream?.send(content: Data(framed), completion: .contentProcessed { _ in })
+                        guard let framed = DNSTCPFramer.frame(message), let upstream else { continue }
+                        pending.enter()
+                        upstream.send(content: Data(framed), completion: .contentProcessed { _ in pending.leave() })
                     }
                 }
-                readFromClient()
+                pending.notify(queue: queue) { [self] in readFromClient() }
             }
         }
     }
@@ -77,26 +89,29 @@ final class TCPRelay: @unchecked Sendable {
     private func readFromUpstream() {
         upstream?.receive(minimumIncompleteLength: 1, maximumLength: 65_537) { [self] data, _, isComplete, error in
             guard !closed else { return }
+            let pending = DispatchGroup()
             if let data, !data.isEmpty {
                 for message in fromUpstream.push(data) {
                     switch filter.decide(response: message) {
                     case .pass:
-                        writeToClient(message)
+                        writeToClient(message, pending)
                     case .block(let reply, let name, let reason):
                         Log.blockedResponse(name: name, reason: reason, app: app, transport: "tcp")
-                        writeToClient(reply)
+                        writeToClient(reply, pending)
                     }
                 }
             }
             if isComplete || error != nil { return close() }
-            readFromUpstream()
+            pending.notify(queue: queue) { [self] in readFromUpstream() }
         }
     }
 
-    private func writeToClient(_ message: [UInt8]) {
+    private func writeToClient(_ message: [UInt8], _ pending: DispatchGroup) {
         guard let framed = DNSTCPFramer.frame(message) else { return }
+        pending.enter()
         flow.write(Data(framed)) { error in
             if let error { Log.flow.error("tcp write failed: \(error.localizedDescription, privacy: .public)") }
+            pending.leave()
         }
     }
 

@@ -67,11 +67,21 @@ public final class DNSFilter: Sendable {
     public func decide(response packet: [UInt8]) -> ResponseDecision {
         let blocklist = store.current
         guard let q = DNSMessage.question(packet) else { return .pass }
-        if case .allowed = blocklist.verdict(normalized: q.name) { return .pass }
-        guard let answer = DNSMessage.answer(packet) else { return .pass }
-
         var reason: Reason?
-        for target in answer.names {
+        switch blocklist.verdict(normalized: q.name) {
+        case .allowed:
+            return .pass
+        case .blocked(let rule):
+            // The query got past decide(query:), for example because the
+            // client wrote its name in a form this parser read differently.
+            // The resolver's answer names it plainly; block it here.
+            reason = .alias(target: q.nameString, rule: rule)
+        case .pass:
+            break
+        }
+        let answer = DNSMessage.answer(packet) ?? DNSMessage.Answer()
+
+        for target in answer.names where reason == nil {
             if case .blocked(let rule) = blocklist.verdict(normalized: target) {
                 reason = .alias(target: String(decoding: target, as: UTF8.self), rule: rule)
                 break
@@ -117,9 +127,15 @@ final class LearnedBlocks: Sendable {
         entries.withLock { map in
             if map.count >= capacity {
                 map = map.filter { $0.value.expires > now }
-                // Still full means a flood of distinct names. Starting over
-                // costs only the memory; the list itself is unaffected.
-                if map.count >= capacity { map.removeAll() }
+                // Still full means a flood of distinct names. Drop the tenth
+                // that expires soonest, not everything: a flood must not
+                // wipe the names learned before it.
+                if map.count >= capacity {
+                    for key in map.sorted(by: { $0.value.expires < $1.value.expires })
+                        .prefix(max(capacity / 10, 1)).map(\.key) {
+                        map[key] = nil
+                    }
+                }
             }
             map[name] = Entry(expires: now + ttl, address: address)
         }

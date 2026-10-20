@@ -16,6 +16,13 @@ actor ListLoader {
     private var failures = 0
     private var loop: Task<Void, Never>?
     private var refreshing = false
+    /// Set by stop(). A refresh still running then must not start a new loop
+    /// for a policy that is no longer in force.
+    private var stopped = false
+    private var lastManualRefresh: ContinuousClock.Instant?
+    /// Any user can ask for a refresh through the app, so a loop of requests
+    /// must not turn into a loop of downloads.
+    static let manualRefreshInterval: Duration = .seconds(60)
     // Status, reported over XPC.
     private var listSummary: ExtensionStatus.ListSummary?
     private var lastAttempt: ExtensionStatus.Attempt?
@@ -38,11 +45,12 @@ actor ListLoader {
     }
 
     func stop() {
+        stopped = true
         loop?.cancel()
     }
 
     private func run() async {
-        while !Task.isCancelled {
+        while !Task.isCancelled, !stopped {
             let delay = await cycle()
             try? await Task.sleep(for: delay)
         }
@@ -66,15 +74,23 @@ actor ListLoader {
 
     /// Refreshes at once and restarts the timer from now. A refresh already
     /// running is not doubled; the caller gets the status when it is done.
-    func refreshNow() async {
-        guard !refreshing else { return }
+    /// Returns false when the request was refused (too soon, already running,
+    /// or stopped).
+    @discardableResult
+    func refreshNow() async -> Bool {
+        let now = ContinuousClock.now
+        if let last = lastManualRefresh, now - last < Self.manualRefreshInterval { return false }
+        guard !refreshing, !stopped else { return false }
+        lastManualRefresh = now
         loop?.cancel()
         let delay = await cycle()
+        guard !stopped else { return true }
         loop = Task {
             try? await Task.sleep(for: delay)
             guard !Task.isCancelled else { return }
             await run()
         }
+        return true
     }
 
     func status() -> (list: ExtensionStatus.ListSummary?, attempt: ExtensionStatus.Attempt?, lastSuccessAt: Date?, nextRefreshAt: Date?, failures: Int) {
@@ -179,7 +195,7 @@ actor ListLoader {
         Log.list.notice(
             "loaded from \(source, privacy: .public): \(s.domainRules) domains, \(s.v4Ranges) v4 ranges, \(s.v6Ranges) v6 ranges, \(s.invalidCount) invalid lines, \(list.byteSize / 1024) KiB")
         for sample in invalid.prefix(10) {
-            Log.list.error("line \(sample.line): \(sample.reason, privacy: .public): \(sample.text, privacy: .public)")
+            Log.list.error("line \(sample.line): \(sample.reason, privacy: .public): \(Log.clean(sample.text), privacy: .public)")
         }
     }
 

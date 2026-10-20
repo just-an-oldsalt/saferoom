@@ -20,6 +20,8 @@ Each block goes to the unified log with the name, the rule, and the signing ID o
 | Path | Why it passes | What to do |
 |---|---|---|
 | DNS over HTTPS, TLS, or QUIC from an app | The lookup is encrypted and does not use port 53. | Deploy `mdm/saferoom-bypass-controls.mobileconfig` for the browsers. For other apps, add the domains of public DoH services to the list, for example `dns.google` and `cloudflare-dns.com`. |
+| DNS over HTTPS or TLS sent to an IP address | No name is looked up, so a list of DoH domains does not help. DoT uses port 853. | Block outbound 853, and 443 to known public resolver addresses, with a firewall or EDR. Restrict which apps users can install. |
+| A browser outside the bypass profile | The profile covers Chrome, Edge, Brave, and Firefox. Arc, Opera, Vivaldi, and others have their own DoH settings. | Add a payload for each browser you allow, or block the others. |
 | iCloud Private Relay | Safari lookups go through Apple's relay. | The bypass-controls profile turns Private Relay off, but only on a supervised Mac (Automated Device Enrollment). On other Macs, users can turn it on. |
 | A connection to an IP address | No DNS lookup happens. | Use a firewall or an EDR network control for address blocks. |
 | An entry in `/etc/hosts` | The system resolver answers from the file without DNS. | Only an administrator can edit the file. Monitor it with your EDR. |
@@ -37,6 +39,8 @@ SafeRoom fails open. If it has no list, or if it cannot read a packet, it lets t
 | Downloads fail | The last good list stays in use. | `DEGRADED`, then `STALE` after three refresh intervals. |
 | The extension crashes | macOS restarts it. Lookups in the gap fail, and blocking starts again from the cache in milliseconds. | `provider` log category: a new `startProxy`. |
 | An administrator stops or removes the extension | The profile marks the extension as not removable, but root can still stop the process. macOS restarts it. | `NOT RUNNING`, or a new `startProxy` in the log. |
+| An administrator replaces the app with a program that reports `OK` to Jamf | The Jamf script checks the code signature of the app before it runs it. | Jamf: `TAMPERED`. |
+| An administrator installs an older SafeRoom build | The app refuses to replace the extension with an older version. | The version is in the Jamf result. |
 
 ## A bad list
 
@@ -52,7 +56,7 @@ These rules do not stop a list that adds a few wrong names. The allowlist in the
 
 ## Secrets
 
-The bearer token is in the MDM profile. An administrator on a managed Mac can read the profile. Give the token read access to the list and nothing else.
+The bearer token is in the MDM profile. macOS stores the proxy configuration in a file that every user on the Mac can read, so any local user can read the token. This is a property of the token method, and SafeRoom cannot prevent it. Use the client certificate method (mTLS) where you can: the private key does not leave the keychain. If you use a token, give it read access to the list and nothing else, and make it easy to revoke.
 
 SafeRoom never logs the token. It removes the query string and the user information from every URL that it logs or reports, because feed URLs often carry a key there.
 
@@ -61,6 +65,14 @@ SafeRoom sends the token or the client certificate only to the host of the list 
 ## The status channel
 
 The app and the extension talk over XPC. Each side reads the code signature of the other, and refuses the connection unless the team ID is the same. Another process on the Mac cannot read the status or start a download. A test with a client that had a different signature was refused.
+
+Each side also requires the exact bundle identifier of the other, so another app signed by the same team cannot connect. Any user can ask for a refresh through the app (`SafeRoom --refresh`), but the extension runs at most one manual refresh a minute and logs the user ID and process ID of each request.
+
+## Hostile input
+
+The extension reads untrusted bytes from three places: the list, DNS packets from every app on the Mac, and answers from DNS servers. A security review traced each path, and probed the risky ones with crafted input. It found no way to run code or to crash the extension. The extension is written in Swift, which checks every array index and integer conversion, and it runs sandboxed with the hardened runtime.
+
+The extension also limits the work that hostile input can cause. A list line longer than 4,096 bytes is skipped unread. One client socket can open at most 8 upstream connections. A TCP connection reads more data only after it has passed on the last data. Names in the log have control characters escaped, so a name with a line break cannot forge a log line.
 
 ## Development controls
 

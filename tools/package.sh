@@ -40,11 +40,21 @@ cat > "$WORK/scripts/postinstall" <<'POST'
 # With nobody logged in, the request is tried as root, which can fail. The
 # app also submits the request each time it opens. A failure here does not
 # fail the install.
-APP=/Applications/SafeRoom.app/Contents/MacOS/SafeRoom
-USER_NAME=$(stat -f %Su /dev/console)
+#
+# Absolute paths only, and the app's signature is checked first, so nothing
+# in the environment can substitute another program.
+PATH=/usr/bin:/bin:/usr/sbin:/sbin
+BUNDLE=/Applications/SafeRoom.app
+REQUIREMENT='anchor apple generic and identifier "com.oldsalt.saferoom" and certificate leaf[subject.OU] = "346JJCHZP7"'
+if ! /usr/bin/codesign --verify --deep --strict -R="$REQUIREMENT" "$BUNDLE"; then
+    echo "SafeRoom postinstall: signature check failed; not activating"
+    exit 0
+fi
+APP="$BUNDLE/Contents/MacOS/SafeRoom"
+USER_NAME=$(/usr/bin/stat -f %Su /dev/console)
 if [ -n "$USER_NAME" ] && [ "$USER_NAME" != "root" ] && [ "$USER_NAME" != "loginwindow" ]; then
-    USER_ID=$(id -u "$USER_NAME")
-    launchctl asuser "$USER_ID" sudo -u "$USER_NAME" "$APP" --activate
+    USER_ID=$(/usr/bin/id -u "$USER_NAME")
+    /bin/launchctl asuser "$USER_ID" /usr/bin/sudo -u "$USER_NAME" "$APP" --activate
 else
     "$APP" --activate
 fi

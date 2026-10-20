@@ -32,7 +32,7 @@ To change the policy, edit the profile in Jamf. The extension reads the policy a
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `ListURL` | string | none | HTTPS URL of the blocklist. When set, this URL is the main source. |
-| `ListPath` | string | `/Library/Application Support/SafeRoom/blocklist.txt` | Local blocklist. If `ListURL` is not set, SafeRoom reads this file. If the URL fails and no list is loaded yet, SafeRoom also reads it. |
+| `ListPath` | string | `/Library/Application Support/SafeRoom/blocklist.txt` | Local blocklist. The path must be inside `/Library/Application Support/SafeRoom/`, which only root can write. Other paths are ignored. If `ListURL` is not set, SafeRoom reads this file. If the URL fails and no list is loaded yet, SafeRoom also reads it. |
 | `ListSHA256URL` | string | none | URL of a file with the list's SHA-256 hash in hex. If the hash does not match the download, SafeRoom rejects the download. |
 | `Auth` | dictionary | none | How to authenticate to `ListURL`. See the next section. |
 | `AllowList` | array of strings | empty | Domains that SafeRoom never blocks. The forms are the same as in the blocklist. |
@@ -52,7 +52,7 @@ SafeRoom adds the host of `ListURL` to the never-block set. A feed that lists it
 | `bearer` | `Token` | SafeRoom sends `Authorization: Bearer <Token>`. |
 | `clientCertificate` | `IdentitySubjectContains`, `IdentityIssuerContains` | SafeRoom presents a TLS client certificate from the keychain. Both keys are optional text filters on the certificate. See [mtls-okta.md](mtls-okta.md). |
 
-An administrator on a managed Mac can read the profile, and so can read a bearer token in it. Give the token read access to the list and nothing else.
+Any local user can read the token, because macOS stores the proxy configuration in a file that every user can read. Prefer `clientCertificate`. If you use a token, give it read access to the list and nothing else, and make it easy to revoke.
 
 SafeRoom follows a redirect only to the same host over the same scheme. It never sends the token to another host.
 
@@ -79,7 +79,7 @@ The SafeRoom app binary has three command-line modes. They work from Terminal an
 | Command | Output |
 |---|---|
 | `SafeRoom --status` | The extension's status as JSON: the list, the last check, the policy, and block counts. |
-| `SafeRoom --refresh` | Runs a check at once, then prints the status as JSON. |
+| `SafeRoom --refresh` | Runs a check at once, then prints the status as JSON. The extension runs at most one manual check a minute. |
 | `SafeRoom --jamf` | One line for a Jamf extension attribute. |
 
 The binary is at `/Applications/SafeRoom.app/Contents/MacOS/SafeRoom`.
@@ -93,6 +93,7 @@ To report SafeRoom health in Jamf inventory, add [`mdm/jamf-extension-attribute.
 | `STALE` | No check succeeded for three refresh intervals. |
 | `NO LIST` | No list is loaded. Every query passes. |
 | `NOT RUNNING` | The extension or the proxy does not answer. |
+| `TAMPERED` | The app at `/Applications/SafeRoom.app` is not signed by the SafeRoom developer. Its output is not trusted. |
 | `NOT INSTALLED` | The app is not in `/Applications`. |
 
 For example, a smart group with the criterion "SafeRoom health does not begin with OK" finds every Mac that needs attention.

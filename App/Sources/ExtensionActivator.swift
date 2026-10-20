@@ -29,7 +29,11 @@ extension ExtensionActivator: OSSystemExtensionRequestDelegate {
         actionForReplacingExtension existing: OSSystemExtensionProperties,
         withExtension ext: OSSystemExtensionProperties
     ) -> OSSystemExtensionRequest.ReplacementAction {
-        .replace
+        // Never downgrade: an older build could reopen a fixed hole. To roll
+        // back, ship the old code with a higher build number.
+        let installed = Int(existing.bundleVersion) ?? 0
+        let offered = Int(ext.bundleVersion) ?? 0
+        return offered >= installed ? .replace : .cancel
     }
 
     nonisolated func requestNeedsUserApproval(_ request: OSSystemExtensionRequest) {

@@ -131,8 +131,10 @@ public enum DNSMessage {
     /// and the offset just past the name where it STARTED (not where a
     /// pointer led). The root name returns an empty array.
     ///
-    /// Compression pointers must point backwards, which rules out loops; the
-    /// jump count and the 255-byte limit are a second guard.
+    /// Forward pointers are followed. RFC 1035 expects backward ones, but
+    /// some resolvers accept forward ones, and refusing to read a name the
+    /// resolver will answer let a blocked name through unchecked. Loops are
+    /// stopped by the jump count and the 255-byte limit.
     static func readName(_ packet: [UInt8], at start: Int) -> ([UInt8], Int)? {
         var name: [UInt8] = []
         var offset = start
@@ -146,7 +148,6 @@ public enum DNSMessage {
             case 0xC0:
                 guard offset + 1 < packet.count, jumps < 64 else { return nil }
                 let target = (length & 0x3F) << 8 | Int(packet[offset + 1])
-                guard target < offset else { return nil }
                 if end == nil { end = offset + 2 }
                 offset = target
                 jumps += 1

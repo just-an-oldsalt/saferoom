@@ -36,7 +36,7 @@ private func status(
 @Test func healthLine() {
     let line = status(failures: 1).healthLine(now: start.addingTimeInterval(60))
     #expect(line.hasPrefix("DEGRADED: 1000 domains, 0 ranges, list checked "))
-    #expect(line.hasSuffix("1 failed: HTTP status 503"))
+    #expect(line.hasSuffix("1 failed: HTTP status 503, version 1"))
 }
 
 @Test func urlIsRedacted() {

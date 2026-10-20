@@ -77,6 +77,14 @@ private let list = makeFilter()
     #expect(list.decide(response: response("swscan.apple.com", a: [198, 51, 100, 7])) == .pass)
 }
 
+@Test func answerToABlockedQuestionIsBlocked() {
+    // The query slipped past decide(query:); the answer still names it.
+    guard case .block(_, let name, _) = list.decide(response: response("a.evil.com", a: [192, 0, 2, 1])) else {
+        Issue.record("not blocked"); return
+    }
+    #expect(name == "a.evil.com")
+}
+
 @Test func allowlistedAliasTargetPasses() {
     #expect(list.decide(response: response("x.org", alias: "edge.apple.com", a: [192, 0, 2, 1])) == .pass)
 }

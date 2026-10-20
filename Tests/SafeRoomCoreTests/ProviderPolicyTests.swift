@@ -10,7 +10,7 @@ import Testing
 
 @Test func readsKeys() {
     let p = ProviderPolicy([
-        "ListPath": "/tmp/list.txt",
+        "ListPath": "/Library/Application Support/SafeRoom/feeds/list.txt",
         "ListURL": "https://intel.example.com/list.txt",
         "ListSHA256URL": "https://intel.example.com/list.txt.sha256",
         "AllowList": ["partner.com", "=exact.org", "bad..name", 42],
@@ -21,7 +21,7 @@ import Testing
         "Auth": ["Type": "Bearer", "Token": "s3cret"],
         "Unknown": true,
     ])
-    #expect(p.listPath == "/tmp/list.txt")
+    #expect(p.listPath == "/Library/Application Support/SafeRoom/feeds/list.txt")
     #expect(p.listURL?.absoluteString == "https://intel.example.com/list.txt")
     #expect(p.listSHA256URL != nil)
     #expect(p.allowList == [DomainRule(name: "partner.com", match: .subtree), DomainRule(name: "exact.org", match: .exact)])
@@ -57,8 +57,17 @@ func urlSchemes(_ text: String, _ accepted: Bool) {
     #expect(ProviderPolicy(["RefreshSeconds": 5]).refreshInterval == ProviderPolicy.minimumRefresh)
 }
 
-@Test func relativePathIgnored() {
-    #expect(ProviderPolicy(["ListPath": "list.txt"]).listPath == ProviderPolicy.defaultListPath)
+@Test(arguments: ["list.txt", "/tmp/list.txt", "/Users/Shared/list.txt",
+                  "/Library/Application Support/SafeRoom/../../../tmp/list.txt"])
+func listPathOutsideFolderIgnored(_ path: String) {
+    #expect(ProviderPolicy(["ListPath": path]).listPath == ProviderPolicy.defaultListPath)
+}
+
+@Test func absurdNumbersAreClamped() {
+    let p = ProviderPolicy(["MaxChangePercent": 100_000_000_000_000_000, "RefreshSeconds": Int.max, "MaxListMegabytes": Int.max])
+    #expect(p.maxChangePercent == 10_000)
+    #expect(p.refreshInterval == .seconds(7 * 86_400))
+    #expect(p.maxListBytes == 1024 << 20)
 }
 
 @Test func neverBlockIncludesListHost() {

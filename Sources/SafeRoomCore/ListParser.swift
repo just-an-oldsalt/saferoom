@@ -44,22 +44,49 @@ public struct ParsedList: Sendable {
     public var lineCount = 0
 
     public static let sampleLimit = 50
+
+    mutating func reject(line: Int, text: String, reason: String) {
+        invalidCount += 1
+        if invalidSamples.count < Self.sampleLimit {
+            invalidSamples.append(InvalidLine(line: line, text: text, reason: reason))
+        }
+    }
 }
 
 /// Turns blocklist text into rules. Bad lines are recorded and skipped; they
 /// never fail the whole list, because one typo in a 250k-line feed must not
 /// leave a fleet unprotected.
 public enum ListParser {
-    public static func parse(_ bytes: some Collection<UInt8>) -> ParsedList {
-        parse(String(decoding: bytes, as: UTF8.self))
-    }
+    /// Longer lines are rejected unread. No valid entry is near this long,
+    /// and the cap bounds the work one line can cause.
+    public static let maxLineBytes = 4096
 
     public static func parse(_ text: String) -> ParsedList {
+        parse(Array(text.utf8))
+    }
+
+    /// Splits on the newline BYTE, one line at a time.
+    ///
+    /// Not `String.split(separator: "\n")`: Swift treats "\r\n" as one
+    /// Character that never equals "\n", so a CRLF file became one line and
+    /// parsed to nothing. Not a split into an array either: 64 MB of empty
+    /// lines made 64 million substrings and gigabytes of memory.
+    public static func parse(_ bytes: some Collection<UInt8>) -> ParsedList {
+        let data = Array(bytes)
         var out = ParsedList()
         var lineNumber = 0
-        for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
+        var start = 0
+        while start < data.count {
+            let end = data[start...].firstIndex(of: UInt8(ascii: "\n")) ?? data.count
             lineNumber += 1
-            parseLine(raw, number: lineNumber, into: &out)
+            if end - start > maxLineBytes {
+                out.reject(line: lineNumber, text: "(line of \(end - start) bytes)", reason: "line longer than \(maxLineBytes) bytes")
+            } else if end > start {
+                // A trailing "\r" is removed by trimmingWhitespace.
+                let line = String(decoding: data[start..<end], as: UTF8.self)
+                parseLine(Substring(line), number: lineNumber, into: &out)
+            }
+            start = end + 1
         }
         out.lineCount = lineNumber
         return out
@@ -72,11 +99,7 @@ public enum ListParser {
         if line.isEmpty || line.hasPrefix("!") { return }  // `!` is an Adblock comment
 
         func reject(_ reason: String) {
-            out.invalidCount += 1
-            if out.invalidSamples.count < ParsedList.sampleLimit {
-                out.invalidSamples.append(
-                    InvalidLine(line: number, text: String(raw.prefix(200)), reason: reason))
-            }
+            out.reject(line: number, text: String(raw.prefix(200)), reason: reason)
         }
 
         let tokens = line.split(whereSeparator: { $0 == " " || $0 == "\t" })
@@ -187,7 +210,7 @@ public enum ListParser {
 
     /// `198.51.100.0/24`, `2001:db8::/32`, or a bare address (a /32 or /128).
     public static func parseCIDR(_ token: Substring) -> CIDRRule? {
-        let parts = token.split(separator: "/", omittingEmptySubsequences: false)
+        let parts = token.split(separator: "/", maxSplits: 2, omittingEmptySubsequences: false)
         guard parts.count <= 2, let address = IPAddress.parse(parts[0]) else { return nil }
         switch address {
         case .v4(let a):

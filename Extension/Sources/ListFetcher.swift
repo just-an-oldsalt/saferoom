@@ -4,8 +4,9 @@ import SafeRoomCore
 
 /// Downloads the list. Policy decides nothing here; `ListUpdate` does.
 ///
-/// - The body goes to a temporary file, and its size is checked before it is
-///   read, so a huge response cannot exhaust the extension's memory.
+/// - The body is streamed and the download stops at the size limit, so a
+///   huge, endless, or compressed-bomb response cannot fill memory or disk.
+///   URLSession inflates gzip itself, so the count is of inflated bytes.
 /// - Credentials (bearer token or client certificate) go only to the list
 ///   URL's host. Redirects are followed only to the same host and scheme.
 /// - Client certificates come from the keychain, chosen by policy
@@ -70,15 +71,27 @@ final class ListFetcher: NSObject, URLSessionTaskDelegate, Sendable {
 
         let session = self.session
         defer { session.finishTasksAndInvalidate() }
-        let (file, response) = try await session.download(for: request)
-        defer { try? FileManager.default.removeItem(at: file) }
+        let (stream, response) = try await session.bytes(for: request)
         guard let http = response as? HTTPURLResponse else { throw FetchError.notHTTP }
+        if http.expectedContentLength > Int64(maxBytes) { throw FetchError.tooLarge(Int(http.expectedContentLength)) }
 
-        let size = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-        guard size <= maxBytes else { throw FetchError.tooLarge(size) }
+        var body = Data()
+        body.reserveCapacity(Int(min(max(http.expectedContentLength, 0), Int64(maxBytes))))
+        var chunk = [UInt8]()
+        chunk.reserveCapacity(1 << 16)
+        for try await byte in stream {
+            chunk.append(byte)
+            if chunk.count == 1 << 16 {
+                body.append(contentsOf: chunk)
+                chunk.removeAll(keepingCapacity: true)
+                if body.count > maxBytes { throw FetchError.tooLarge(body.count) }
+            }
+        }
+        body.append(contentsOf: chunk)
+        guard body.count <= maxBytes else { throw FetchError.tooLarge(body.count) }
         return Response(
             status: http.statusCode,
-            body: try Data(contentsOf: file),
+            body: body,
             etag: http.value(forHTTPHeaderField: "ETag"),
             lastModified: http.value(forHTTPHeaderField: "Last-Modified"))
     }
