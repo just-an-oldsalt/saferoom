@@ -58,34 +58,39 @@ private func evaluate(
     guard case .accept = evaluate(Data("# empty feed".utf8)) else { Issue.record("rejected"); return }
 }
 
+private let fiftyPercent: ProviderPolicy = {
+    var p = ProviderPolicy()
+    p.maxChangePercent = 50
+    return p
+}()
+
+@Test func changeCheckIsOffByDefault() {
+    guard case .accept = evaluate(list(10, prefix: "e"), current: CompiledList(source: list(1000))) else {
+        Issue.record("rejected"); return
+    }
+}
+
 @Test func largeShrinkRejected() {
     let current = CompiledList(source: list(1000))
-    #expect(evaluate(list(400, prefix: "e"), current: current)
+    #expect(evaluate(list(400, prefix: "e"), current: current, policy: fiftyPercent)
         == .reject(.changeTooLarge(previous: 1000, new: 400, limitPercent: 50)))
 }
 
 @Test func largeGrowthRejected() {
     let current = CompiledList(source: list(1000))
-    guard case .reject(.changeTooLarge) = evaluate(list(1600, prefix: "e"), current: current) else {
+    guard case .reject(.changeTooLarge) = evaluate(list(1600, prefix: "e"), current: current, policy: fiftyPercent) else {
         Issue.record("accepted"); return
     }
 }
 
 @Test func changeWithinLimitAccepted() {
     let current = CompiledList(source: list(1000))
-    guard case .accept = evaluate(list(1400, prefix: "e"), current: current) else { Issue.record("rejected"); return }
+    guard case .accept = evaluate(list(1400, prefix: "e"), current: current, policy: fiftyPercent) else { Issue.record("rejected"); return }
 }
 
-@Test func checkCanBeDisabled() {
-    var policy = ProviderPolicy()
-    policy.maxChangePercent = 0
-    guard case .accept = evaluate(list(10, prefix: "e"), current: CompiledList(source: list(1000)), policy: policy) else {
-        Issue.record("rejected"); return
-    }
-}
 
 @Test func smallListsSkipPercentCheck() {
-    guard case .accept = evaluate(list(50, prefix: "e"), current: CompiledList(source: list(5))) else {
+    guard case .accept = evaluate(list(50, prefix: "e"), current: CompiledList(source: list(5)), policy: fiftyPercent) else {
         Issue.record("rejected"); return
     }
 }

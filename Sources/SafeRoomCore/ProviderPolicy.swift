@@ -20,8 +20,12 @@ public struct ProviderPolicy: Sendable, Equatable {
     public var neverBlockHosts: [String] = []
     public var refreshInterval: Duration = .seconds(3600)
     /// A new list whose entry count changes by more than this, compared with
-    /// the current list, is rejected. 0 turns the check off.
-    public var maxChangePercent: Int = 50
+    /// the current list, is rejected. 0 (the default) turns the check off.
+    ///
+    /// Off by default because a rejection never clears on its own: when a
+    /// feed legitimately grows or shrinks (a source added or dropped), every
+    /// Mac would keep the old list until an admin changed the profile.
+    public var maxChangePercent: Int = 0
     public var maxListBytes: Int = 64 << 20
 
     public static let minimumRefresh: Duration = .seconds(300)

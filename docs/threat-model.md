@@ -43,7 +43,7 @@ SafeRoom fails open. If it has no list, or if it cannot read a packet, it lets t
 A feed can be wrong by mistake, or an attacker can change it. A list that blocks too much stops business work on every Mac. SafeRoom limits the damage in these ways:
 
 - It never blocks the built-in names (Apple, iCloud, Jamf Cloud, Okta), the `NeverBlockHosts` from the policy, or the host of the list URL. A bad list therefore cannot stop the fix from arriving.
-- It rejects a list whose entry count changes by more than `MaxChangePercent`.
+- It can reject a list whose entry count changes by more than `MaxChangePercent`. The rule is off by default. A rejection stays until an administrator changes the profile, so a legitimate change to the feed would stop every Mac from updating.
 - It rejects an empty list as a replacement for a list with entries.
 - It rejects a list whose SHA-256 does not match `ListSHA256URL`. Host the hash file on a different system from the list. An attacker then needs to change both. SafeRoom sends no credentials to the hash file's host, so that file must be readable without them.
 - It keeps the last good list after any rejection.

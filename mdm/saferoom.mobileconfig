@@ -94,8 +94,10 @@
 				</dict>
 				<key>RefreshSeconds</key>
 				<integer>3600</integer>
+				<!-- 0 = off (the default). If you set it, a feed that changes size
+				     on purpose stops every Mac from updating until you raise it. -->
 				<key>MaxChangePercent</key>
-				<integer>50</integer>
+				<integer>0</integer>
 				<key>MaxListMegabytes</key>
 				<integer>64</integer>
 				<!-- Never blocked. Same forms as the list. -->

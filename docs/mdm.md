@@ -38,7 +38,7 @@ To change the policy, edit the profile in Jamf. The extension reads the policy a
 | `AllowList` | array of strings | empty | Domains that SafeRoom never blocks. The forms are the same as in the blocklist. |
 | `NeverBlockHosts` | array of strings | empty | More domains that SafeRoom never blocks, added to the built-in set. Put your MDM server here. |
 | `RefreshSeconds` | integer | 3600 | Time between downloads. The minimum is 300. |
-| `MaxChangePercent` | integer | 50 | If the entry count of a new list changes by more than this percentage, SafeRoom rejects it. 0 turns the rule off. |
+| `MaxChangePercent` | integer | 0 | If the entry count of a new list changes by more than this percentage, SafeRoom rejects it. 0, the default, turns the rule off. Read the warning in the update section before you turn it on. |
 | `MaxListMegabytes` | integer | 64 | SafeRoom rejects a download larger than this. |
 
 `ListURL` and `ListSHA256URL` must use HTTPS. Plain HTTP works only for `localhost` and `127.0.0.1`, for tests.
@@ -64,7 +64,7 @@ SafeRoom follows a redirect only to the same host over the same scheme. It never
 4. If the list passes, SafeRoom installs it and writes a new cache. If it fails, SafeRoom keeps the current list and logs the reason.
 5. After a success, SafeRoom waits `RefreshSeconds`. After a failure, it retries after 1 minute, then 2, 4, 8, and so on, up to `RefreshSeconds`.
 
-The percentage rule skips lists with fewer than 100 entries. To accept an intended large change, raise `MaxChangePercent` for one refresh, then set it back.
+The percentage rule is off by default. If you turn it on, a rejection does not clear by itself. When the feed changes size on purpose, for example because a source was added, every Mac keeps the old list until you raise `MaxChangePercent` in the profile. The rule skips lists with fewer than 100 entries.
 
 ## Changing the policy
 
