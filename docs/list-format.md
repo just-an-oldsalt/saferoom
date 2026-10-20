@@ -26,7 +26,15 @@ SafeRoom changes each name to lowercase and removes a trailing dot. Names can co
 | `2001:db8::/32` | That IPv6 range |
 | `::1` | That one IPv6 address (a /128) |
 
-An address entry applies to DNS answers. If an A record or an AAAA record in an answer is in a listed range, SafeRoom replaces the whole answer with NXDOMAIN. An address entry does not block a direct connection to that address, because a direct connection does not use DNS.
+An address entry applies to DNS answers. SafeRoom reads the A records and the AAAA records in each answer. It also reads the `ipv4hint` and `ipv6hint` values in HTTPS and SVCB records, because browsers connect to those addresses. If one address is in a listed range, SafeRoom replaces the whole answer with NXDOMAIN.
+
+An address entry does not block a direct connection to that address, because a direct connection does not use DNS.
+
+## Aliases and the allowlist
+
+SafeRoom also checks the targets of CNAME records and of HTTPS and SVCB records. If `innocent.org` is an alias for `cdn.evil.com`, and `evil.com` is on the list, the answer for `innocent.org` becomes NXDOMAIN.
+
+An allowlist match always wins. If a queried name is on the allowlist or on the built-in never-block list, SafeRoom does not check its answer at all. Use the allowlist to fix a false positive, for example a CDN range in a feed that also serves a site you need.
 
 If an entry has host bits set below the prefix, SafeRoom clears them. For example, `198.51.100.77/24` becomes `198.51.100.0/24`.
 
