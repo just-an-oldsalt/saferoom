@@ -8,7 +8,7 @@ import SafeRoomCore
 ///
 /// Each datagram arrives with the address the client sent it to (its
 /// resolver). A blocked query is answered here. Anything else goes to that
-/// same address over our own socket, and the answer is checked on the way
+/// same address through `UpstreamPool`, and the answer is checked on the way
 /// back. SafeRoom never picks a resolver: it uses the one the Mac already uses.
 ///
 /// All state lives on `queue`. NetworkExtension calls back on its own
@@ -19,13 +19,6 @@ final class UDPRelay: @unchecked Sendable {
     private let filter: DNSFilter
     private let app: String
     private let queue = DispatchQueue(label: "saferoom.udp")
-    private var upstreams: [NWEndpoint: NWConnection] = [:]
-    /// Oldest first, for eviction.
-    private var upstreamOrder: [NWEndpoint] = []
-    /// A client socket normally talks to one or two resolvers. A cap stops
-    /// one socket from opening a connection per destination until the
-    /// extension runs out of file descriptors.
-    static let maxUpstreams = 8
     private var lastActivity = ContinuousClock.now
     private var idleTimer: DispatchSourceTimer?
     private var closed = false
@@ -73,42 +66,13 @@ final class UDPRelay: @unchecked Sendable {
             Log.blockedQuery(name: name, type: type, rule: rule, app: app, transport: "udp")
             writeToClient(reply, from: endpoint)
         case .forward:
-            upstream(for: endpoint).send(content: Data(packet), completion: .contentProcessed { error in
-                if let error { Log.flow.error("udp send failed: \(error.localizedDescription, privacy: .public)") }
-            })
-        }
-    }
-
-    private func upstream(for endpoint: NWEndpoint) -> NWConnection {
-        if let existing = upstreams[endpoint] { return existing }
-        if upstreams.count >= Self.maxUpstreams, let oldest = upstreamOrder.first {
-            upstreamOrder.removeFirst()
-            upstreams.removeValue(forKey: oldest)?.cancel()
-        }
-        let connection = NWConnection(to: endpoint, using: .udp)
-        connection.stateUpdateHandler = { [self] state in
-            if case .failed(let error) = state {
-                Log.flow.error("udp upstream \(String(describing: endpoint), privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
-                upstreams[endpoint] = nil
-                upstreamOrder.removeAll { $0 == endpoint }
-                connection.cancel()
+            UpstreamPool.shared.send(packet, to: endpoint) { [self] response in
+                queue.async { [self] in
+                    guard !closed else { return }
+                    lastActivity = .now
+                    handleResponse(response, from: endpoint)
+                }
             }
-        }
-        upstreams[endpoint] = connection
-        upstreamOrder.append(endpoint)
-        connection.start(queue: queue)
-        readFromUpstream(connection, endpoint: endpoint)
-        return connection
-    }
-
-    private func readFromUpstream(_ connection: NWConnection, endpoint: NWEndpoint) {
-        connection.receiveMessage { [self] data, _, _, error in
-            guard !closed else { return }
-            if let data, !data.isEmpty {
-                lastActivity = .now
-                handleResponse([UInt8](data), from: endpoint)
-            }
-            if error == nil { readFromUpstream(connection, endpoint: endpoint) }
         }
     }
 
@@ -145,9 +109,6 @@ final class UDPRelay: @unchecked Sendable {
         closed = true
         idleTimer?.cancel()
         idleTimer = nil
-        for connection in upstreams.values { connection.cancel() }
-        upstreams.removeAll()
-        upstreamOrder.removeAll()
         flow.closeReadWithError(nil)
         flow.closeWriteWithError(nil)
     }
