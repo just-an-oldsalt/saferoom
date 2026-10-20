@@ -4,6 +4,7 @@ import Synchronization
 /// so all of it is unit-tested. The relays only move bytes.
 public final class DNSFilter: Sendable {
     public let store: BlocklistStore
+    public let counters = FilterCounters()
     let learned: LearnedBlocks
 
     public init(store: BlocklistStore, learnedTTL: Duration = .seconds(300), learnedCapacity: Int = 10_000) {
@@ -40,6 +41,7 @@ public final class DNSFilter: Sendable {
     /// here too, for every record type (see `LearnedBlocks`).
     public func decide(query packet: [UInt8]) -> QueryDecision {
         guard let q = DNSMessage.question(packet), !q.isResponse else { return .forward }
+        counters.queries.add(1, ordering: .relaxed)
         let rule: String
         switch store.current.verdict(normalized: q.name) {
         case .blocked(let r):
@@ -49,8 +51,10 @@ public final class DNSFilter: Sendable {
         case .pass:
             guard let address = learned.lookup(q.nameString) else { return .forward }
             rule = "learned:\(address)"
+            counters.learnedBlocks.add(1, ordering: .relaxed)
         }
         guard let reply = DNSMessage.nxdomain(replyingTo: packet) else { return .forward }
+        counters.blockedQueries.add(1, ordering: .relaxed)
         return .block(reply: reply, name: q.nameString, type: q.type, rule: rule)
     }
 
@@ -78,6 +82,7 @@ public final class DNSFilter: Sendable {
             learned.add(q.nameString, address: address)
         }
         guard let reason, let reply = DNSMessage.nxdomain(replyingTo: packet) else { return .pass }
+        counters.blockedAnswers.add(1, ordering: .relaxed)
         return .block(reply: reply, name: q.nameString, reason: reason)
     }
 }

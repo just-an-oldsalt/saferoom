@@ -84,7 +84,7 @@ final class ListFetcher: NSObject, URLSessionTaskDelegate, Sendable {
     ) async -> URLRequest? {
         let from = task.originalRequest?.url
         guard let to = request.url, to.scheme == from?.scheme, to.host() == from?.host() else {
-            Log.list.error("refusing redirect to \(request.url?.absoluteString ?? "?", privacy: .public)")
+            Log.list.error("refusing redirect to \(request.url.map(ExtensionStatus.PolicySummary.redacted) ?? "?", privacy: .public)")
             return nil
         }
         return request

@@ -5,5 +5,6 @@ import NetworkExtension
 // NetworkExtension, which instantiates the provider class named in Info.plist.
 autoreleasepool {
     NEProvider.startSystemExtensionMode()
+    ControlServer.shared.start()
 }
 dispatchMain()

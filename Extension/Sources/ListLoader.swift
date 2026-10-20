@@ -15,6 +15,12 @@ actor ListLoader {
     private var current: CompiledList?
     private var failures = 0
     private var loop: Task<Void, Never>?
+    private var refreshing = false
+    // Status, reported over XPC.
+    private var listSummary: ExtensionStatus.ListSummary?
+    private var lastAttempt: ExtensionStatus.Attempt?
+    private var lastSuccessAt: Date?
+    private var nextRefreshAt: Date?
 
     init(policy: ProviderPolicy, store: BlocklistStore) {
         self.policy = policy
@@ -35,12 +41,39 @@ actor ListLoader {
 
     private func run() async {
         while !Task.isCancelled {
-            let ok = await refresh()
-            failures = ok ? 0 : failures + 1
-            let delay = ok ? policy.refreshInterval : retryDelay(afterFailures: failures, refresh: policy.refreshInterval)
-            if !ok { Log.list.notice("retrying in \(delay.components.seconds)s (failure \(self.failures))") }
+            let delay = await cycle()
             try? await Task.sleep(for: delay)
         }
+    }
+
+    /// One refresh with its bookkeeping. Returns the wait until the next one.
+    private func cycle() async -> Duration {
+        refreshing = true
+        let ok = await refresh()
+        refreshing = false
+        failures = ok ? 0 : failures + 1
+        if ok { lastSuccessAt = Date() }
+        let delay = ok ? policy.refreshInterval : retryDelay(afterFailures: failures, refresh: policy.refreshInterval)
+        if !ok { Log.list.notice("retrying in \(delay.components.seconds)s (failure \(self.failures))") }
+        nextRefreshAt = Date().addingTimeInterval(TimeInterval(delay.components.seconds))
+        return delay
+    }
+
+    /// Refreshes at once and restarts the timer from now. A refresh already
+    /// running is not doubled; the caller gets the status when it is done.
+    func refreshNow() async {
+        guard !refreshing else { return }
+        loop?.cancel()
+        let delay = await cycle()
+        loop = Task {
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return }
+            await run()
+        }
+    }
+
+    func status() -> (list: ExtensionStatus.ListSummary?, attempt: ExtensionStatus.Attempt?, lastSuccessAt: Date?, nextRefreshAt: Date?, failures: Int) {
+        (listSummary, lastAttempt, lastSuccessAt, nextRefreshAt, failures)
     }
 
     /// True when the current list is the newest one available, even if that
@@ -69,6 +102,7 @@ actor ListLoader {
                 let hash = try await fetcher.fetch(hashURL, state: nil)
                 guard hash.status == 200 else {
                     Log.list.error("SHA-256 download failed: HTTP status \(hash.status)")
+                    record(hashURL.absoluteString, .failed, "SHA-256 file: HTTP status \(hash.status)")
                     return false
                 }
                 expected = String(decoding: hash.body, as: UTF8.self)
@@ -89,6 +123,7 @@ actor ListLoader {
             let text = (error as? URLError).map { "\($0.localizedDescription) (URLError \($0.code.rawValue))" }
                 ?? String(describing: error)
             Log.list.error("download failed: \(text, privacy: .public)")
+            record(url.absoluteString, .failed, text)
             return false
         }
     }
@@ -102,28 +137,38 @@ actor ListLoader {
                 source: path)
         } catch {
             Log.list.error("cannot read \(path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            record(path, .failed, error.localizedDescription)
             return false
         }
     }
 
     /// True unless the update was rejected.
-    private func apply(_ outcome: ListUpdate.Outcome, source: String) -> Bool {
+    private func apply(_ outcome: ListUpdate.Outcome, source rawSource: String) -> Bool {
+        let source = ExtensionStatus.redact(rawSource)
         switch outcome {
         case .unchanged:
             Log.list.info("\(source, privacy: .public) unchanged")
+            record(source, .unchanged)
             return true
         case .accept(let list, let invalid):
             install(list, invalid: invalid, from: source)
             Self.writeCache(list)
+            record(source, .accepted)
             return true
         case .reject(let reason):
+            record(source, .rejected, reason.description)
             Log.list.error("rejected \(source, privacy: .public): \(reason.description, privacy: .public); keeping the current list")
             return false
         }
     }
 
+    private func record(_ source: String, _ result: ExtensionStatus.Attempt.Result, _ detail: String? = nil) {
+        lastAttempt = .init(at: Date(), source: ExtensionStatus.redact(source), result: result, detail: detail)
+    }
+
     private func install(_ list: CompiledList, invalid: [InvalidLine], from source: String) {
         current = list
+        listSummary = .init(list, source: source, loadedAt: Date())
         store.replace(policy.blocklist(list))
         let s = list.stats
         Log.list.notice(

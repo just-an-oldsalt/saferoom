@@ -17,7 +17,7 @@ packages:
 settings:
   base:
     MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: "8"
+    CURRENT_PROJECT_VERSION: "10"
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
     DEVELOPMENT_TEAM: 346JJCHZP7
@@ -36,6 +36,9 @@ targets:
       # Contents/Library/SystemExtensions, which is the only place
       # OSSystemExtensionRequest looks.
       - target: SafeRoomDNSProxy
+      # For the XPC protocol and the status format.
+      - package: SafeRoomCore
+        product: SafeRoomCore
     settings:
       base:
         PRODUCT_NAME: SafeRoom

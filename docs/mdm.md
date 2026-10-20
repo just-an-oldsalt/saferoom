@@ -49,6 +49,33 @@ The extension reads the policy once, at the start of the proxy. If you change `P
 
 The extension receives the policy in the `options` of `startProxy`, under the key `VendorData`. In a system extension, `NEDNSProxyManager.shared()` does not return the payload's configuration.
 
+## Status and Jamf inventory
+
+The SafeRoom app binary has three command-line modes. They work from Terminal and from a root script, with no window.
+
+| Command | Output |
+|---|---|
+| `SafeRoom --status` | The extension's status as JSON: the list, the last check, the policy, and block counts. |
+| `SafeRoom --refresh` | Runs a check at once, then prints the status as JSON. |
+| `SafeRoom --jamf` | One line for a Jamf extension attribute. |
+
+The binary is at `/Applications/SafeRoom.app/Contents/MacOS/SafeRoom`.
+
+To report SafeRoom health in Jamf inventory, add [`mdm/jamf-extension-attribute.sh`](../mdm/jamf-extension-attribute.sh) as an extension attribute with the data type String. The result starts with one of these states:
+
+| State | Meaning |
+|---|---|
+| `OK` | A list is loaded, and the last check succeeded. |
+| `DEGRADED` | Recent checks failed. The list in use is not stale yet. |
+| `STALE` | No check succeeded for three refresh intervals. |
+| `NO LIST` | No list is loaded. Every query passes. |
+| `NOT RUNNING` | The extension or the proxy does not answer. |
+| `NOT INSTALLED` | The app is not in `/Applications`. |
+
+For example, a smart group with the criterion "SafeRoom health does not begin with OK" finds every Mac that needs attention.
+
+The app and the extension talk over XPC. Each side accepts the other only if Apple's code signing shows the same team ID. Other processes on the Mac cannot read the status or start a download.
+
 ## Log
 
 Run this command to watch SafeRoom:

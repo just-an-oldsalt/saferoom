@@ -32,10 +32,22 @@ final class DNSProxyProvider: NEDNSProxyProvider, NEAppProxyUDPFlowHandling, @un
         // a changed configuration takes effect when the proxy restarts.
         let policy = ProviderPolicy(options?["VendorData"] as? [String: Any] ?? [:])
         Log.provider.notice(
-            "policy: listURL=\(policy.listURL?.absoluteString ?? "none", privacy: .public) listPath=\(policy.listPath, privacy: .public) sha256URL=\(policy.listSHA256URL != nil) auth=\(policy.auth.description, privacy: .public) refresh=\(policy.refreshInterval.components.seconds)s maxChange=\(policy.maxChangePercent)% allow=\(policy.allowList.count) neverBlockHosts=\(policy.neverBlockHosts.count)")
+            "policy: listURL=\(policy.listURL.map(ExtensionStatus.PolicySummary.redacted) ?? "none", privacy: .public) listPath=\(policy.listPath, privacy: .public) sha256URL=\(policy.listSHA256URL != nil) auth=\(policy.auth.description, privacy: .public) refresh=\(policy.refreshInterval.components.seconds)s maxChange=\(policy.maxChangePercent)% allow=\(policy.allowList.count) neverBlockHosts=\(policy.neverBlockHosts.count)")
         let loader = ListLoader(policy: policy, store: filter.store)
         self.loader.withLock { $0 = loader }
         Task { await loader.start() }
+        let startedAt = Date()
+        let summary = ExtensionStatus.PolicySummary(policy)
+        let counters = filter.counters
+        ControlServer.shared.register(.init(
+            status: {
+                let s = await loader.status()
+                return ExtensionStatus(
+                    version: Self.version, startedAt: startedAt, policy: summary, list: s.list,
+                    lastAttempt: s.attempt, lastSuccessAt: s.lastSuccessAt, nextRefreshAt: s.nextRefreshAt,
+                    consecutiveFailures: s.failures, counters: counters.values)
+            },
+            refreshNow: { await loader.refreshNow() }))
         // Never fail the start because of the list: fail-open.
         completionHandler(nil)
     }
@@ -46,8 +58,16 @@ final class DNSProxyProvider: NEDNSProxyProvider, NEAppProxyUDPFlowHandling, @un
     ) {
         Log.provider.notice("stopProxy reason=\(reason.rawValue, privacy: .public)")
         if let loader = loader.withLock({ $0 }) { Task { await loader.stop() } }
+        ControlServer.shared.register(nil)
         completionHandler()
     }
+
+    static let version: String = {
+        let info = Bundle.main.infoDictionary
+        let short = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return "\(short) (\(build))"
+    }()
 
     func handleNewUDPFlow(_ flow: NEAppProxyUDPFlow, initialRemoteFlowEndpoint remoteEndpoint: NWEndpoint) -> Bool {
         UDPRelay(flow: flow, filter: filter).start()

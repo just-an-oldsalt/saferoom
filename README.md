@@ -12,7 +12,7 @@ The name comes from Dungeon Crawler Carl. In the dungeon, a safe room is the one
 
 This project is in early development. The proxy blocks domains and address ranges, over UDP and TCP, and it logs each block with the app that asked. It downloads its list from an HTTPS URL with a bearer token, rejects suspect lists, and keeps the last good list on any failure. On a test Mac, a list of 250,000 domains uses 2.2 MB of memory, and a lookup takes about 140 nanoseconds.
 
-These parts do not exist yet: the status display in the app and the sample MDM profiles. The client certificate (mTLS) download is built but not tested.
+The app shows the extension's status, and `SafeRoom --jamf` reports health to Jamf inventory. The sample MDM profiles do not exist yet. The client certificate (mTLS) download is built but not tested.
 
 ## Documentation
 
