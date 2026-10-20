@@ -24,7 +24,11 @@ private func evaluate(
 }
 
 @Test func notModified() {
-    #expect(evaluate(Data(), status: 304) == .unchanged)
+    #expect(evaluate(Data(), status: 304, current: CompiledList(source: list(5))) == .unchanged)
+}
+
+@Test func notModifiedWithNoListIsAFailure() {
+    #expect(evaluate(Data(), status: 304) == .reject(.httpStatus(304)))
 }
 
 @Test func identicalBodyIsUnchanged() {

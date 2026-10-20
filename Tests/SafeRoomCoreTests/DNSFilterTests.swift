@@ -121,3 +121,23 @@ private let list = makeFilter()
     for i in 0..<250 { _ = filter.decide(response: response("n\(i).org", a: [198, 51, 100, 7])) }
     #expect(filter.learned.count <= 100)
 }
+
+/// The second review's bypass: one extra record whose owner name has a dot
+/// inside a label used to make the whole answer unreadable, and it passed.
+@Test func oddRecordDoesNotHideABlockedAddress() {
+    var p = response("shady.org", a: [198, 51, 100, 7])
+    p[7] = 2 // two answers
+    // Owner name: one label "a.b" (a dot inside the label), type TXT, 1 byte.
+    p += [3] + Array("a.b".utf8) + [0, 0, 16, 0, 1, 0, 0, 0, 60, 0, 1, 0]
+    guard case .block(_, _, let reason) = makeFilter().decide(response: p) else {
+        Issue.record("passed"); return
+    }
+    #expect(reason == .address(.v4(0xC633_6407)))
+}
+
+@Test func oddRecordDoesNotHideABlockedAlias() {
+    var p = response("innocent.org", alias: "cdn.evil.com", a: [192, 0, 2, 1])
+    p[7] = 3
+    p += [3] + Array("a.b".utf8) + [0, 0, 16, 0, 1, 0, 0, 0, 60, 0, 1, 0]
+    guard case .block = makeFilter().decide(response: p) else { Issue.record("passed"); return }
+}

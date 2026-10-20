@@ -32,7 +32,7 @@ To change the policy, edit the profile in Jamf. The extension reads the policy a
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `ListURL` | string | none | HTTPS URL of the blocklist. When set, this URL is the main source. |
-| `ListPath` | string | `/Library/Application Support/SafeRoom/blocklist.txt` | Local blocklist. The path must be inside `/Library/Application Support/SafeRoom/`, which only root can write. Other paths are ignored. If `ListURL` is not set, SafeRoom reads this file. If the URL fails and no list is loaded yet, SafeRoom also reads it. |
+| `ListPath` | string | `/Library/Application Support/SafeRoom/blocklist.txt` | Local blocklist. The path must be inside `/Library/Application Support/SafeRoom/`, which only root can write. Other paths are ignored. The file must be owned by root and must not be writable by group or others, or SafeRoom refuses it. The installer package creates the folder with the right owner. If `ListURL` is not set, SafeRoom reads this file. If the URL fails and no list is loaded yet, SafeRoom also reads it. |
 | `ListSHA256URL` | string | none | URL of a file with the list's SHA-256 hash in hex. If the hash does not match the download, SafeRoom rejects the download. |
 | `Auth` | dictionary | none | How to authenticate to `ListURL`. See the next section. |
 | `AllowList` | array of strings | empty | Domains that SafeRoom never blocks. The forms are the same as in the blocklist. |
@@ -40,10 +40,11 @@ To change the policy, edit the profile in Jamf. The extension reads the policy a
 | `RefreshSeconds` | integer | 3600 | Time between downloads. The minimum is 300. |
 | `MaxChangePercent` | integer | 0 | If the entry count of a new list changes by more than this percentage, SafeRoom rejects it. 0, the default, turns the rule off. Read the warning in the update section before you turn it on. |
 | `MaxListMegabytes` | integer | 64 | SafeRoom rejects a download larger than this. |
+| `AllowTopLevelBlocks` | boolean | false | Lets list rules like `*.zip` block a whole top-level domain. Off by default, so a bad feed cannot block `*.com`. |
 
 `ListURL` and `ListSHA256URL` must use HTTPS. Plain HTTP works only for `localhost` and `127.0.0.1`, for tests.
 
-SafeRoom adds the host of `ListURL` to the never-block set. A feed that lists its own server can then never stop the fix from arriving.
+SafeRoom never blocks the host of `ListURL`, so a feed that lists its own server cannot stop the fix from arriving. This applies to that exact name only. If the list is on a shared host, the names under it stay blockable.
 
 ## Auth
 
@@ -79,7 +80,7 @@ The SafeRoom app binary has three command-line modes. They work from Terminal an
 | Command | Output |
 |---|---|
 | `SafeRoom --status` | The extension's status as JSON: the list, the last check, the policy, and block counts. |
-| `SafeRoom --refresh` | Runs a check at once, then prints the status as JSON. The extension runs at most one manual check a minute. |
+| `SafeRoom --refresh` | Runs a check at once, then prints the status as JSON. The extension runs at most one manual check every 5 minutes. |
 | `SafeRoom --jamf` | One line for a Jamf extension attribute. |
 
 The binary is at `/Applications/SafeRoom.app/Contents/MacOS/SafeRoom`.

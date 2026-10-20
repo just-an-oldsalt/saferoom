@@ -44,7 +44,10 @@ public enum ListUpdate {
         status: Int, body: Data, expectedSHA256: String?,
         current: CompiledList?, policy: ProviderPolicy
     ) -> Outcome {
-        if status == 304 { return .unchanged }
+        // Conditional headers are sent only with a list loaded, so a 304
+        // with none is wrong; treating it as success would skip the
+        // local-file fallback.
+        if status == 304 { return current == nil ? .reject(.httpStatus(304)) : .unchanged }
         guard status == 200 else { return .reject(.httpStatus(status)) }
         guard body.count <= policy.maxListBytes else {
             return .reject(.tooLarge(bytes: body.count, limit: policy.maxListBytes))

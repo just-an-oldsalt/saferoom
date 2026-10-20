@@ -22,7 +22,9 @@ actor ListLoader {
     private var lastManualRefresh: ContinuousClock.Instant?
     /// Any user can ask for a refresh through the app, so a loop of requests
     /// must not turn into a loop of downloads.
-    static let manualRefreshInterval: Duration = .seconds(60)
+    /// Same as the shortest policy refresh, so a user cannot make the
+    /// extension poll faster than an admin may.
+    static let manualRefreshInterval: Duration = .seconds(300)
     // Status, reported over XPC.
     private var listSummary: ExtensionStatus.ListSummary?
     private var lastAttempt: ExtensionStatus.Attempt?
@@ -150,6 +152,16 @@ actor ListLoader {
     private func loadFile() -> Bool {
         let path = policy.listPath
         do {
+            // Only root may be able to change the list: a file that a user
+            // could write would let that user decide what is blocked.
+            let attributes = try FileManager.default.attributesOfItem(atPath: path)
+            let owner = (attributes[.ownerAccountID] as? NSNumber)?.intValue ?? -1
+            let mode = (attributes[.posixPermissions] as? NSNumber)?.intValue ?? 0o777
+            guard owner == 0, mode & 0o022 == 0 else {
+                Log.list.error("refusing \(path, privacy: .public): it must be owned by root and not writable by others (owner \(owner), mode \(String(mode, radix: 8), privacy: .public))")
+                record(path, .failed, "not owned by root, or writable by others")
+                return false
+            }
             let body = try Data(contentsOf: URL(fileURLWithPath: path))
             return apply(
                 ListUpdate.evaluate(status: 200, body: body, expectedSHA256: nil, current: current, policy: policy),

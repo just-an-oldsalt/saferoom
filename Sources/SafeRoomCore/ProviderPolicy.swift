@@ -31,6 +31,8 @@ public struct ProviderPolicy: Sendable, Equatable {
     /// Mac would keep the old list until an admin changed the profile.
     public var maxChangePercent: Int = 0
     public var maxListBytes: Int = 64 << 20
+    /// Lets list rules like `*.zip` block a whole top-level domain.
+    public var allowTopLevelBlocks = false
 
     public static let minimumRefresh: Duration = .seconds(300)
 
@@ -62,20 +64,27 @@ public struct ProviderPolicy: Sendable, Equatable {
         if let percent = Self.int(config["MaxChangePercent"]) { maxChangePercent = min(max(percent, 0), 10_000) }
         if let megabytes = Self.int(config["MaxListMegabytes"]) { maxListBytes = min(max(megabytes, 1), 1024) << 20 }
         auth = Self.auth(config["Auth"])
+        allowTopLevelBlocks = config["AllowTopLevelBlocks"] as? Bool ?? false
     }
 
-    /// The list URL's host joins the never-block set: a feed that listed its
-    /// own server could never be fixed by pushing a new list.
-    public var effectiveNeverBlock: [String] {
-        var hosts = NeverBlock.builtIn + neverBlockHosts
-        for url in [listURL, listSHA256URL] {
-            if let host = url?.host()?.lowercased(), IPAddress.parse(Substring(host)) == nil { hosts.append(host) }
+    /// The never-block set: built-in names and NeverBlockHosts, each with
+    /// everything under it.
+    public var effectiveNeverBlock: [String] { NeverBlock.builtIn + neverBlockHosts }
+
+    /// The list URL's host is never blocked, or a feed that listed its own
+    /// server could never be fixed. Exact name only: if the list sits on a
+    /// shared host, the names under it stay blockable.
+    public var listHostRules: [DomainRule] {
+        [listURL, listSHA256URL].compactMap { url in
+            guard let host = url?.host()?.lowercased(), IPAddress.parse(Substring(host)) == nil else { return nil }
+            return DomainRule(name: host, match: .exact)
         }
-        return hosts
     }
 
     public func blocklist(_ list: CompiledList) -> Blocklist {
-        Blocklist(list: list, allow: allowList, neverBlock: effectiveNeverBlock)
+        Blocklist(
+            list: list, allow: allowList + listHostRules, neverBlock: effectiveNeverBlock,
+            allowTopLevelBlocks: allowTopLevelBlocks)
     }
 
     // MARK: - Value parsing

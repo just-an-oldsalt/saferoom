@@ -11,7 +11,7 @@ A SafeRoom blocklist is a plain text file in UTF-8. Each line holds one entry. T
 | `*.evil.com` | `a.evil.com`, `a.b.evil.com` | `evil.com` |
 | `.evil.com` | Same as `evil.com` | |
 | `\|\|evil.com^` | Same as `evil.com` (Adblock syntax) | |
-| `*.zip` | Every name in the `.zip` top-level domain | |
+| `*.zip` | Every name in the `.zip` top-level domain, but only if the policy sets `AllowTopLevelBlocks` | |
 
 A bare name blocks the name and all names under it, because threat feeds expect that behavior.
 
@@ -56,9 +56,9 @@ These lines are rejected:
 
 - A name with non-ASCII characters. Write an international name in punycode, for example `xn--80ak6aa92e.com`.
 - A wildcard anywhere except as a leading `*.`, for example `evil.*` or `a.*.evil.com`.
-- A single label without `*.`, for example `com`. To block a whole top-level domain, write `*.com`. This rule stops a stray line from blocking a whole TLD by accident.
+- A single label without `*.`, for example `com`. To block a whole top-level domain, write `*.com` and set `AllowTopLevelBlocks` in the policy. Without the policy key, SafeRoom ignores such rules, so a bad feed cannot block a whole TLD.
 - A label longer than 63 bytes, or a name longer than 253 bytes.
-- A CIDR prefix that is too long, for example `/33` for IPv4.
+- A CIDR prefix that is too long, for example `/33` for IPv4, or too short: broader than `/8` for IPv4 or `/16` for IPv6. `0.0.0.0/0` would block every answer.
 - A two-field line whose first field is not an IP address.
 
 ## Example

@@ -41,13 +41,8 @@
 					<string>com.oldsalt.saferoom.dnsproxy</string>
 				</array>
 			</dict>
-			<key>AllowedSystemExtensionTypes</key>
-			<dict>
-				<key>346JJCHZP7</key>
-				<array>
-					<string>NetworkExtension</string>
-				</array>
-			</dict>
+			<!-- No AllowedSystemExtensionTypes key: it would approve every
+			     network extension from the team, not only SafeRoom's. -->
 			<key>NonRemovableSystemExtensions</key>
 			<dict>
 				<key>346JJCHZP7</key>

@@ -49,10 +49,13 @@ A feed can be wrong by mistake, or an attacker can change it. A list that blocks
 - It never blocks the built-in names (Apple, iCloud, Jamf Cloud, Okta), the `NeverBlockHosts` from the policy, or the host of the list URL. A bad list therefore cannot stop the fix from arriving.
 - It can reject a list whose entry count changes by more than `MaxChangePercent`. The rule is off by default. A rejection stays until an administrator changes the profile, so a legitimate change to the feed would stop every Mac from updating.
 - It rejects an empty list as a replacement for a list with entries.
+- It ignores rules on a single label, like `*.com`, unless the policy sets `AllowTopLevelBlocks`. It rejects address ranges broader than IPv4 `/8` or IPv6 `/16`.
 - It rejects a list whose SHA-256 does not match `ListSHA256URL`. Host the hash file on a different system from the list. An attacker then needs to change both. SafeRoom sends no credentials to the hash file's host, so that file must be readable without them.
 - It keeps the last good list after any rejection.
 
 These rules do not stop a list that adds a few wrong names. The allowlist in the policy fixes such names at once, without a new list.
+
+Lists are not signed. TLS protects a list in transit, and the optional SHA-256 file detects corruption. Neither stops a server under an attacker's control from serving an old list again, or a list of its choice. Host the hash file on a different system from the list, so an attacker needs to change both.
 
 ## Secrets
 
@@ -66,11 +69,13 @@ SafeRoom sends the token or the client certificate only to the host of the list 
 
 The app and the extension talk over XPC. Each side reads the code signature of the other, and refuses the connection unless the team ID is the same. Another process on the Mac cannot read the status or start a download. A test with a client that had a different signature was refused.
 
-Each side also requires the exact bundle identifier of the other, so another app signed by the same team cannot connect. Any user can ask for a refresh through the app (`SafeRoom --refresh`), but the extension runs at most one manual refresh a minute and logs the user ID and process ID of each request.
+Each side also requires the exact bundle identifier of the other and a Developer ID certificate, so another app of the same team, or a development build, cannot connect. Any user can ask for a refresh through the app (`SafeRoom --refresh`), but the extension runs at most one manual refresh every 5 minutes, the same as the shortest policy refresh. It logs the user ID and process ID of each request.
 
 ## Hostile input
 
-The extension reads untrusted bytes from three places: the list, DNS packets from every app on the Mac, and answers from DNS servers. A security review traced each path, and probed the risky ones with crafted input. It found no way to run code or to crash the extension. The extension is written in Swift, which checks every array index and integer conversion, and it runs sandboxed with the hardened runtime.
+The extension reads untrusted bytes from three places: the list, DNS packets from every app on the Mac, and answers from DNS servers. Two security reviews traced each path, and probed the risky ones with crafted input. Neither found a way to run code or to crash the extension.
+
+The second review found a bypass. Before version 0.1.2, one answer record that the parser could not read made SafeRoom skip the whole answer. A DNS server could add such a record to hide a blocked address or a blocked alias. SafeRoom now skips only the unreadable record and checks the others. The extension is written in Swift, which checks every array index and integer conversion, and it runs sandboxed with the hardened runtime.
 
 The extension also limits the work that hostile input can cause. A list line longer than 4,096 bytes is skipped unread. One client socket can open at most 8 upstream connections. A TCP connection reads more data only after it has passed on the last data. Names in the log have control characters escaped, so a name with a line break cannot forge a log line.
 
@@ -84,7 +89,7 @@ SafeRoom logs only blocked lookups. It does not log the other lookups. The log e
 
 ## Supply chain
 
-The app and the extension are signed with a personal Developer ID (team `346JJCHZP7`). The MDM profile trusts that team for the system extension. Before you deploy SafeRoom across a fleet, build and sign it under your organization's Developer ID, and change the team ID in the profile.
+The app and the extension are signed with a personal Developer ID (team `346JJCHZP7`). The team ID appears in the profiles, the Jamf script, the scripts, and the code signature checks. If that personal account is revoked, every Mac stops trusting SafeRoom. The MDM profile approves only SafeRoom's extension, not every extension of the team. Before you deploy SafeRoom across a fleet, build and sign it under your organization's Developer ID, and change the team ID in the profile.
 
 ## Not tested yet
 

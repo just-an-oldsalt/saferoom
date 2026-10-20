@@ -144,8 +144,8 @@ private func rule(_ name: String, _ match: DomainMatch = .subtree) -> DomainRule
         #expect(ListParser.parse("::1").cidrs == [.v6(1, prefix: 128)])
     }
 
-    @Test func zeroPrefix() {
-        #expect(ListParser.parse("0.0.0.0/0").cidrs == [.v4(0, prefix: 0)])
+    @Test func zeroPrefixIsRejected() {
+        #expect(ListParser.parse("0.0.0.0/0").cidrs.isEmpty)
     }
 }
 

@@ -75,15 +75,20 @@ public struct DomainSet: Sendable, Equatable {
     ///
     /// `name` must already be lowercase ASCII with no trailing dot. The DNS
     /// codec and `DomainKey.normalize` produce that form.
-    public func matchedSuffixLength(_ name: UnsafeBufferPointer<UInt8>) -> Int? {
+    /// With `skipTopLevel`, a match on a single label (a rule like `*.com`)
+    /// is ignored and the walk goes on to longer suffixes.
+    public func matchedSuffixLength(_ name: UnsafeBufferPointer<UInt8>, skipTopLevel: Bool = false) -> Int? {
         guard !keys.isEmpty, !name.isEmpty else { return nil }
         var hash = DomainKey.offset
         var i = name.count
+        var labels = 0
         while i > 0 {
             i -= 1
             hash = DomainKey.step(hash, name[i])
             let atStart = i == 0
             guard atStart || name[i - 1] == UInt8(ascii: ".") else { continue }
+            labels += 1
+            if skipTopLevel, labels == 1 { continue }
             if let f = lookup(hash) {
                 let flagsNeeded: Flags = atStart ? .name : .descendants
                 if f.contains(flagsNeeded) { return name.count - i }
@@ -130,5 +135,33 @@ public enum DomainKey {
         for i in bytes.indices where bytes[i] >= 0x41 && bytes[i] <= 0x5A {
             bytes[i] |= 0x20
         }
+    }
+}
+
+/// A small set of names compared as exact strings. Used for the allowlist
+/// and the never-block set, where a match WINS over the blocklist: with
+/// 64-bit hashes, a name that collided with apple.com could not be blocked.
+/// These sets are small, so exact strings cost nothing that matters.
+public struct NameSet: Sendable, Equatable {
+    private var flags: [String: DomainSet.Flags] = [:]
+
+    public init(_ rules: some Sequence<DomainRule>) {
+        for rule in rules { flags[rule.name, default: []].formUnion(.init(rule.match)) }
+    }
+
+    public var count: Int { flags.count }
+
+    /// Same contract as `DomainSet.matchedSuffixLength`.
+    public func matchedSuffixLength(_ name: UnsafeBufferPointer<UInt8>) -> Int? {
+        guard !flags.isEmpty, !name.isEmpty else { return nil }
+        var i = name.count
+        while i > 0 {
+            i -= 1
+            let atStart = i == 0
+            guard atStart || name[i - 1] == UInt8(ascii: ".") else { continue }
+            let suffix = String(decoding: UnsafeBufferPointer(rebasing: name[i...]), as: UTF8.self)
+            if let f = flags[suffix], f.contains(atStart ? .name : .descendants) { return name.count - i }
+        }
+        return nil
     }
 }

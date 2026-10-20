@@ -28,13 +28,14 @@ enum Log {
     }
 
     static func blockedQuery(name: String, type: UInt16, rule: String, app: String, transport: String) {
-        let name = clean(name), rule = clean(rule)
+        // The app ID too: an ad-hoc signed program chooses its own.
+        let name = clean(name), rule = clean(rule), app = clean(app)
         block.notice(
             "blocked query name=\(name, privacy: .public) type=\(type, privacy: .public) rule=\(rule, privacy: .public) app=\(app, privacy: .public) via=\(transport, privacy: .public)")
     }
 
     static func blockedResponse(name: String, reason: DNSFilter.Reason, app: String, transport: String) {
-        let name = clean(name)
+        let name = clean(name), app = clean(app)
         let detail: String
         switch reason {
         case .alias(let target, let rule): detail = "alias=\(clean(target)) rule=\(clean(rule))"

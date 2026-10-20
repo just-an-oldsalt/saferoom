@@ -6,11 +6,18 @@ public struct Blocklist: Sendable {
     public let list: CompiledList
     /// Policy allowlist plus the built-in never-block set. Checked first, and
     /// a match here always wins over the blocklist, whatever is more specific.
-    public let allow: DomainSet
+    public let allow: NameSet
+    /// Rules on a single label (`*.zip`) block a whole top-level domain.
+    /// Off unless the policy turns it on, so a bad feed cannot block `*.com`.
+    public let allowTopLevelBlocks: Bool
 
-    public init(list: CompiledList, allow: [DomainRule] = [], neverBlock: [String] = NeverBlock.builtIn) {
+    public init(
+        list: CompiledList, allow: [DomainRule] = [], neverBlock: [String] = NeverBlock.builtIn,
+        allowTopLevelBlocks: Bool = false
+    ) {
         self.list = list
-        self.allow = DomainSet(allow + neverBlock.map { DomainRule(name: $0, match: .subtree) })
+        self.allow = NameSet(allow + neverBlock.map { DomainRule(name: $0, match: .subtree) })
+        self.allowTopLevelBlocks = allowTopLevelBlocks
     }
 
     public static let empty = Blocklist(list: .empty)
@@ -37,7 +44,9 @@ public struct Blocklist: Sendable {
                 String(decoding: buffer[(buffer.count - length)...], as: UTF8.self)
             }
             if let length = allow.matchedSuffixLength(buffer) { return .allowed(rule: suffix(length)) }
-            if let length = list.domains.matchedSuffixLength(buffer) { return .blocked(rule: suffix(length)) }
+            if let length = list.domains.matchedSuffixLength(buffer, skipTopLevel: !allowTopLevelBlocks) {
+                return .blocked(rule: suffix(length))
+            }
             return .pass
         }
     }

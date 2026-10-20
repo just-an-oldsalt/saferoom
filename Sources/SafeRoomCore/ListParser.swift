@@ -216,7 +216,9 @@ public enum ListParser {
         case .v4(let a):
             var prefix: UInt8 = 32
             if parts.count == 2 {
-                guard let p = UInt8(parts[1]), p <= 32 else { return nil }
+                // Broader than /8 is a feed error, not a threat: /0 would
+                // block every answer.
+                guard let p = UInt8(parts[1]), p <= 32, p >= 8 else { return nil }
                 prefix = p
             }
             let mask: UInt32 = prefix == 0 ? 0 : ~UInt32(0) << (32 - prefix)
@@ -224,7 +226,7 @@ public enum ListParser {
         case .v6(let a):
             var prefix: UInt8 = 128
             if parts.count == 2 {
-                guard let p = UInt8(parts[1]), p <= 128 else { return nil }
+                guard let p = UInt8(parts[1]), p <= 128, p >= 16 else { return nil }
                 prefix = p
             }
             let mask: UInt128 = prefix == 0 ? 0 : ~UInt128(0) << (128 - prefix)

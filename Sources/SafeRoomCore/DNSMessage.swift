@@ -69,34 +69,68 @@ public enum DNSMessage {
 
     /// Reads the answer section of a response. Authority and additional
     /// sections are not read: a stub resolver connects to what is in answers.
+    ///
+    /// Never all-or-nothing. A record whose data cannot be read is skipped,
+    /// and a broken frame ends the scan with the records found so far. An
+    /// earlier version returned nil for the whole answer, so a server could
+    /// hide a blocked address behind one odd record.
     public static func answer(_ packet: [UInt8]) -> Answer? {
         guard let q = question(packet), q.isResponse else { return nil }
         let count = Int(u16(packet, 6))
         var offset = q.questionEnd
         var out = Answer()
         for _ in 0..<count {
-            guard let (_, afterName) = readName(packet, at: offset), afterName + 10 <= packet.count else { return nil }
+            // The owner name's content never matters here, only its length.
+            guard let afterName = skipName(packet, at: offset), afterName + 10 <= packet.count else { break }
             let type = u16(packet, afterName)
             let length = Int(u16(packet, afterName + 8))
             let start = afterName + 10
             let end = start + length
-            guard end <= packet.count else { return nil }
+            guard end <= packet.count else { break }
             switch type {
             case RecordType.a where length == 4:
                 out.addresses.append(.v4(bytes: packet[start..<end]))
             case RecordType.aaaa where length == 16:
                 out.addresses.append(.v6(bytes: packet[start..<end]))
             case RecordType.cname:
-                guard let (target, _) = readName(packet, at: start) else { return nil }
-                out.names.append(target)
+                // A target that cannot be written as a dotted name cannot be
+                // a listed name either; skip only this record.
+                if let (target, _) = readName(packet, at: start) { out.names.append(target) }
             case RecordType.svcb, RecordType.https:
-                guard readServiceBinding(packet, start..<end, into: &out) else { return nil }
+                var record = Answer()
+                if readServiceBinding(packet, start..<end, into: &record) {
+                    out.names += record.names
+                    out.addresses += record.addresses
+                }
             default:
                 break
             }
             offset = end
         }
         return out
+    }
+
+    /// The offset just past a name, following its wire structure only:
+    /// labels by length, and a final compression pointer. Nil if the name
+    /// runs past the packet or uses an obsolete label type.
+    static func skipName(_ packet: [UInt8], at start: Int) -> Int? {
+        var offset = start
+        var total = 0
+        while offset < packet.count {
+            let length = Int(packet[offset])
+            switch length & 0xC0 {
+            case 0xC0:
+                return offset + 2 <= packet.count ? offset + 2 : nil
+            case 0x00:
+                if length == 0 { return offset + 1 }
+                total += length + 1
+                guard total <= 255 else { return nil }
+                offset += 1 + length
+            default:
+                return nil
+            }
+        }
+        return nil
     }
 
     /// RFC 9460: priority, target name, then key/length/value parameters.

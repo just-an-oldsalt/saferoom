@@ -36,9 +36,11 @@ private func blocklist(_ text: String, allow: [String] = [], neverBlock: [String
         #expect(b.verdict(for: "a.b.wild.org") == .blocked(rule: "wild.org"))
     }
 
-    @Test func wholeTLD() {
-        #expect(b.verdict(for: "anything.zip") == .blocked(rule: "zip"))
-        #expect(b.verdict(for: "zip") == .pass)
+    @Test func wholeTLDNeedsPolicy() {
+        #expect(b.verdict(for: "anything.zip") == .pass)
+        let opted = Blocklist(list: b.list, neverBlock: [], allowTopLevelBlocks: true)
+        #expect(opted.verdict(for: "anything.zip") == .blocked(rule: "zip"))
+        #expect(opted.verdict(for: "zip") == .pass)
     }
 
     @Test func modesMergeForSameName() {
@@ -70,7 +72,9 @@ private func blocklist(_ text: String, allow: [String] = [], neverBlock: [String
         let b = Blocklist(list: CompiledList(source: Array("apple.com\n*.com\nevil.com".utf8)))
         #expect(b.verdict(for: "swscan.apple.com") == .allowed(rule: "apple.com"))
         #expect(b.verdict(for: "login.okta.com") == .allowed(rule: "okta.com"))
-        #expect(b.verdict(for: "evil.com") == .blocked(rule: "com"))
+        // *.com is ignored without AllowTopLevelBlocks; evil.com still matches.
+        #expect(b.verdict(for: "evil.com") == .blocked(rule: "evil.com"))
+        #expect(b.verdict(for: "other.com") == .pass)
     }
 }
 
@@ -104,11 +108,12 @@ private func blocklist(_ text: String, allow: [String] = [], neverBlock: [String
         #expect(!b.isBlocked(.v6(base + (UInt128(1) << 80))))
     }
 
-    @Test func fullRanges() {
-        let all = blocklist("0.0.0.0/0\n::/0")
-        #expect(all.isBlocked(.v4(.max)))
-        #expect(all.isBlocked(.v6(.max)))
-        #expect(all.list.v4.count == 1)
+    @Test func overBroadRangesAreRejected() {
+        let all = blocklist("0.0.0.0/0\n::/0\n10.0.0.0/7\n2001::/15")
+        #expect(!all.isBlocked(.v4(.max)))
+        #expect(!all.isBlocked(.v6(.max)))
+        #expect(all.list.stats.invalidCount == 4)
+        #expect(blocklist("10.0.0.0/8").isBlocked(.v4(0x0A01_0203)))
     }
 }
 
@@ -165,4 +170,19 @@ private func blocklist(_ text: String, allow: [String] = [], neverBlock: [String
     250k: compile \(compileTime), in-memory \(list.byteSize / 1024) KiB, cache file \(cache.count / 1024) KiB, \
     cache load \(loadTime), lookup \(lookupTime / queries.count) each
     """)
+}
+
+@Test func allowlistIsExactNotHashed() {
+    // The allowlist compares strings; a different name never matches it.
+    let b = Blocklist(list: CompiledList(source: Array("evil.com".utf8)), allow: [DomainRule(name: "partner.com", match: .subtree)], neverBlock: [])
+    #expect(b.allow.count == 1)
+    #expect(b.verdict(for: "x.partner.com") == .allowed(rule: "partner.com"))
+    #expect(b.verdict(for: "evil.com") == .blocked(rule: "evil.com"))
+}
+
+@Test func listHostIsProtectedExactlyNotItsSubtree() {
+    let p = ProviderPolicy(["ListURL": "https://feeds.sharedhost.example/list.txt"])
+    let b = p.blocklist(CompiledList(source: Array("sharedhost.example".utf8)))
+    #expect(b.verdict(for: "feeds.sharedhost.example") == .allowed(rule: "feeds.sharedhost.example"))
+    #expect(b.verdict(for: "evil.feeds.sharedhost.example") == .blocked(rule: "sharedhost.example"))
 }

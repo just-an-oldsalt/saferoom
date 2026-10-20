@@ -45,11 +45,17 @@ cat > "$WORK/scripts/postinstall" <<'POST'
 # in the environment can substitute another program.
 PATH=/usr/bin:/bin:/usr/sbin:/sbin
 BUNDLE=/Applications/SafeRoom.app
-REQUIREMENT='anchor apple generic and identifier "com.oldsalt.saferoom" and certificate leaf[subject.OU] = "346JJCHZP7"'
+# Developer ID certificate, our team, the exact app. A development build fails.
+REQUIREMENT='anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "346JJCHZP7" and identifier "com.oldsalt.saferoom"'
 if ! /usr/bin/codesign --verify --deep --strict -R="$REQUIREMENT" "$BUNDLE"; then
     echo "SafeRoom postinstall: signature check failed; not activating"
     exit 0
 fi
+# The folder for a local list. Only root may write it; the extension refuses
+# a list file there that anyone else can write.
+/bin/mkdir -p "/Library/Application Support/SafeRoom"
+/usr/sbin/chown root:wheel "/Library/Application Support/SafeRoom"
+/bin/chmod 755 "/Library/Application Support/SafeRoom"
 APP="$BUNDLE/Contents/MacOS/SafeRoom"
 USER_NAME=$(/usr/bin/stat -f %Su /dev/console)
 if [ -n "$USER_NAME" ] && [ "$USER_NAME" != "root" ] && [ "$USER_NAME" != "loginwindow" ]; then

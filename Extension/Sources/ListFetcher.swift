@@ -36,16 +36,23 @@ final class ListFetcher: NSObject, URLSessionTaskDelegate, Sendable {
     /// The only host that gets credentials: the list URL's. A hash file on
     /// another host is fetched without them.
     private let credentialHost: String?
+    private let credentialPort: Int?
 
     init(policy: ProviderPolicy) {
         self.auth = policy.auth
         self.maxBytes = policy.maxListBytes
         self.credentialHost = policy.listURL?.host()?.lowercased()
+        self.credentialPort = policy.listURL.map(Self.port)
+    }
+
+    /// The URL's port, with the scheme's default filled in.
+    static func port(_ url: URL) -> Int {
+        url.port ?? (url.scheme?.lowercased() == "http" ? 80 : 443)
     }
 
     private func mayAuthenticate(_ url: URL?) -> Bool {
-        guard let host = url?.host()?.lowercased() else { return false }
-        return host == credentialHost
+        guard let url, let host = url.host()?.lowercased() else { return false }
+        return host == credentialHost && Self.port(url) == credentialPort
     }
 
     private var session: URLSession {
@@ -105,7 +112,9 @@ final class ListFetcher: NSObject, URLSessionTaskDelegate, Sendable {
         willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest
     ) async -> URLRequest? {
         let from = task.originalRequest?.url
-        guard let to = request.url, to.scheme == from?.scheme, to.host() == from?.host() else {
+        guard let to = request.url, let from, to.scheme == from.scheme, to.host() == from.host(),
+              Self.port(to) == Self.port(from)
+        else {
             Log.list.error("refusing redirect to \(request.url.map(ExtensionStatus.PolicySummary.redacted) ?? "?", privacy: .public)")
             return nil
         }
@@ -158,7 +167,8 @@ final class ListFetcher: NSObject, URLSessionTaskDelegate, Sendable {
             let issuerText = issuerSummary(certificate)
             if let subject, !subjectText.localizedCaseInsensitiveContains(subject) { continue }
             if let issuer, !issuerText.localizedCaseInsensitiveContains(issuer) { continue }
-            Log.list.notice("using client certificate subject=\(subjectText, privacy: .public) issuer=\(issuerText, privacy: .public)")
+            // The issuer only: a subject can hold a person's name or email.
+            Log.list.notice("using a client certificate issued by \(Log.clean(issuerText), privacy: .public)")
             return identity
         }
         Log.list.error("searched \(identities.count) keychain identities, none matched")

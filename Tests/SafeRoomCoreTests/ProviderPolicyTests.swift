@@ -74,6 +74,7 @@ func listPathOutsideFolderIgnored(_ path: String) {
     let p = ProviderPolicy(["ListURL": "https://Intel.Example.com/list", "NeverBlockHosts": ["mdm.example.com"]])
     let b = p.blocklist(CompiledList(source: Array("example.com\napple.com".utf8)))
     #expect(b.verdict(for: "intel.example.com") == .allowed(rule: "intel.example.com"))
+    #expect(b.verdict(for: "x.intel.example.com") == .blocked(rule: "example.com"))
     #expect(b.verdict(for: "mdm.example.com") == .allowed(rule: "mdm.example.com"))
     #expect(b.verdict(for: "www.example.com") == .blocked(rule: "example.com"))
     #expect(b.verdict(for: "apple.com") == .allowed(rule: "apple.com"))

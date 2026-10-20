@@ -17,12 +17,14 @@ public enum ControlChannel {
     /// which is why it starts with the app group.
     public static let machServiceName = "346JJCHZP7.com.oldsalt.saferoom.dnsproxy"
 
-    /// Each end checks the other's code signature: Apple-issued certificate,
+    /// Each end checks the other's code signature: a Developer ID
+    /// certificate (the two field checks are Apple's Developer ID markers),
     /// our team, and the exact bundle identifier. Without it any local
-    /// process could read the status or trigger downloads; with the team
-    /// alone, any other app signed by the team could.
-    public static let appRequirement =
-        #"anchor apple generic and identifier "com.oldsalt.saferoom" and certificate leaf[subject.OU] = "346JJCHZP7""#
-    public static let extensionRequirement =
-        #"anchor apple generic and identifier "com.oldsalt.saferoom.dnsproxy" and certificate leaf[subject.OU] = "346JJCHZP7""#
+    /// process could read the status or trigger downloads. With the team
+    /// alone, any other app of the team could, and so could a development
+    /// build, which can be signed by any team member's own certificate.
+    static let developerID =
+        #"anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "346JJCHZP7""#
+    public static let appRequirement = developerID + #" and identifier "com.oldsalt.saferoom""#
+    public static let extensionRequirement = developerID + #" and identifier "com.oldsalt.saferoom.dnsproxy""#
 }
