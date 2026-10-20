@@ -1,0 +1,5 @@
+# Copy to Config/signing.local (git ignores it) and fill in.
+#
+# The notarytool keychain profile, created once with:
+#   xcrun notarytool store-credentials <name> --apple-id <id> --team-id <team>
+NOTARY_PROFILE=

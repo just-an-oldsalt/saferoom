@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import SafeRoomCore
 import SystemExtensions
 
 /// Asks macOS to install or update the DNS proxy system extension.
@@ -10,7 +11,7 @@ import SystemExtensions
 @Observable
 @MainActor
 final class ExtensionActivator: NSObject {
-    nonisolated static let extensionID = "com.oldsalt.saferoom.dnsproxy"
+    nonisolated static var extensionID: String { Identity.current.extensionID }
 
     private(set) var state = "Not requested"
 

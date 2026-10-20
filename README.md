@@ -36,7 +36,7 @@ make release   # Archive, sign with Developer ID, notarize and staple.
 make package   # Signed, notarized installer package for MDM.
 ```
 
-`make release` needs a Developer ID certificate, the Developer ID provisioning profiles, and a `notarytool` keychain profile. The header of `tools/release.sh` explains how to create them.
+`make release` needs a Developer ID certificate, the Developer ID provisioning profiles, and a `notarytool` keychain profile. To build under your organization, change the two lines in `Config/Identity.xcconfig` and follow [docs/building.md](docs/building.md).
 
 ## License
 

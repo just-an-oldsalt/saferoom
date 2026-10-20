@@ -21,7 +21,7 @@ final class TCPRelay: @unchecked Sendable {
     private let flow: NEAppProxyTCPFlow
     private let filter: DNSFilter
     private let app: String
-    private let queue = DispatchQueue(label: "com.oldsalt.saferoom.tcp")
+    private let queue = DispatchQueue(label: "saferoom.tcp")
     private var upstream: NWConnection?
     private var fromClient = DNSTCPFramer()
     private var fromUpstream = DNSTCPFramer()

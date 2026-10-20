@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Archive, Developer ID sign, notarize and staple SafeRoom.app.
 #
-#   tools/release.sh            (NOTARY_PROFILE defaults to notary-profile)
+#   tools/release.sh
+#
+# The identity comes from Config/Identity.xcconfig and Config/signing.local
+# (see tools/identity.sh).
 #
 # ## Why it re-signs by hand instead of `xcodebuild -exportArchive`
 #
@@ -25,13 +28,14 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$HERE/tools/identity.sh"
 OUT="${OUT:-$HOME/Library/Caches/saferoom/release}"
-NOTARY_PROFILE="${NOTARY_PROFILE:-notary-profile}"
-IDENTITY="${IDENTITY:-Developer ID Application: DEVELOPER NAME (346JJCHZP7)}"
+require_notary_profile
+IDENTITY="${IDENTITY:-$(find_identity "Developer ID Application")}"
+[[ -n "$IDENTITY" ]] || { echo "no Developer ID Application identity for team $TEAM_ID in the keychain" >&2; exit 1; }
 PROFILES="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
 ARCHIVE="$OUT/SafeRoom.xcarchive"
 APP="$OUT/SafeRoom.app"
-EXT_ID="com.oldsalt.saferoom.dnsproxy"
 SYSEXT="$APP/Contents/Library/SystemExtensions/$EXT_ID.systemextension"
 
 # Path of the newest profile with this exact name.
@@ -84,7 +88,7 @@ xcodebuild archive -quiet \
 echo "==> sign with $IDENTITY"
 ditto "$ARCHIVE/Products/Applications/SafeRoom.app" "$APP"
 resign "$SYSEXT" "$(profile_named "Mac Team Direct Provisioning Profile: $EXT_ID")"
-resign "$APP" "$(profile_named "Mac Team Direct Provisioning Profile: com.oldsalt.saferoom")"
+resign "$APP" "$(profile_named "Mac Team Direct Provisioning Profile: $APP_ID")"
 codesign --verify --deep --strict "$APP"
 
 echo "==> notarize with profile $NOTARY_PROFILE"

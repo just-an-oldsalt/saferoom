@@ -35,7 +35,7 @@
 	<dict>
 		<!-- Must start with an app group the extension is entitled to. -->
 		<key>NEMachServiceName</key>
-		<string>346JJCHZP7.com.oldsalt.saferoom.dnsproxy</string>
+		<string>$(SAFEROOM_TEAM_ID).$(SAFEROOM_APP_ID).dnsproxy</string>
 		<key>NEProviderClasses</key>
 		<dict>
 			<key>com.apple.networkextension.dns-proxy</key>

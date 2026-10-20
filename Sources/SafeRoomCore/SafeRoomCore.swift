@@ -1,6 +1,6 @@
-/// Shared identifiers. The extension, the app and the tests all read these, so
-/// a renamed bundle ID or log subsystem changes in one place.
+/// Shared names. Derived from the build's identity, so a build under another
+/// organization needs no code change.
 public enum SafeRoom {
-    public static let logSubsystem = "com.oldsalt.saferoom"
-    public static let appGroup = "346JJCHZP7.com.oldsalt.saferoom"
+    public static var logSubsystem: String { Identity.current.logSubsystem }
+    public static var appGroup: String { Identity.current.appGroup }
 }

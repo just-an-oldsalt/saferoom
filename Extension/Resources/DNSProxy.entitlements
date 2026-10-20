@@ -22,7 +22,7 @@
 	<true/>
 	<key>com.apple.security.application-groups</key>
 	<array>
-		<string>346JJCHZP7.com.oldsalt.saferoom</string>
+		<string>$(SAFEROOM_TEAM_ID).$(SAFEROOM_APP_ID)</string>
 	</array>
 </dict>
 </plist>

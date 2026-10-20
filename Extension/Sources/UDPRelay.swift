@@ -18,7 +18,7 @@ final class UDPRelay: @unchecked Sendable {
     private let flow: NEAppProxyUDPFlow
     private let filter: DNSFilter
     private let app: String
-    private let queue = DispatchQueue(label: "com.oldsalt.saferoom.udp")
+    private let queue = DispatchQueue(label: "saferoom.udp")
     private var upstreams: [NWEndpoint: NWConnection] = [:]
     /// Oldest first, for eviction.
     private var upstreamOrder: [NWEndpoint] = []

@@ -23,18 +23,18 @@ app: project
 	xcodebuild -project SafeRoom.xcodeproj -scheme SafeRoom \
 		-destination 'platform=macOS' -allowProvisioningUpdates build
 
-## Developer ID archive, notarize and staple.
-NOTARY_PROFILE ?= notary-profile
+## Developer ID archive, notarize and staple. Identity: Config/Identity.xcconfig
+## and Config/signing.local.
 
 ## DEV_CONTROLS=1 keeps the app's proxy buttons and -TestPolicy (not for fleets).
 DEV_CONTROLS ?= 0
 
 release:
-	NOTARY_PROFILE="$(NOTARY_PROFILE)" DEV_CONTROLS="$(DEV_CONTROLS)" tools/release.sh
+	DEV_CONTROLS="$(DEV_CONTROLS)" tools/release.sh
 
 ## Installer package for MDM, from the release app.
 package:
-	NOTARY_PROFILE="$(NOTARY_PROFILE)" tools/package.sh
+	tools/package.sh
 
 clean:
 	rm -rf SafeRoom.xcodeproj .build

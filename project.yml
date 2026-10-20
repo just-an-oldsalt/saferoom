@@ -5,10 +5,14 @@
 # is a one-line diff instead of a merge hazard.
 name: SafeRoom
 options:
-  bundleIdPrefix: com.oldsalt
   deploymentTarget:
     macOS: "15.0"
   createIntermediateGroups: true
+
+# Team and bundle ID: Config/Identity.xcconfig is the only place they are set.
+configFiles:
+  Debug: Config/Identity.xcconfig
+  Release: Config/Identity.xcconfig
 
 packages:
   SafeRoomCore:
@@ -17,10 +21,10 @@ packages:
 settings:
   base:
     MARKETING_VERSION: "0.1.2"
-    CURRENT_PROJECT_VERSION: "15"
+    CURRENT_PROJECT_VERSION: "16"
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
-    DEVELOPMENT_TEAM: 346JJCHZP7
+    DEVELOPMENT_TEAM: $(SAFEROOM_TEAM_ID)
     CODE_SIGN_STYLE: Automatic
     # Notarization refuses anything without the hardened runtime.
     ENABLE_HARDENED_RUNTIME: YES
@@ -42,7 +46,7 @@ targets:
     settings:
       base:
         PRODUCT_NAME: SafeRoom
-        PRODUCT_BUNDLE_IDENTIFIER: com.oldsalt.saferoom
+        PRODUCT_BUNDLE_IDENTIFIER: $(SAFEROOM_APP_ID)
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: SafeRoom
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.utilities
@@ -63,8 +67,8 @@ targets:
     settings:
       base:
         # The extension's bundle ID must start with the app's.
-        PRODUCT_BUNDLE_IDENTIFIER: com.oldsalt.saferoom.dnsproxy
-        PRODUCT_NAME: com.oldsalt.saferoom.dnsproxy
+        PRODUCT_BUNDLE_IDENTIFIER: $(SAFEROOM_APP_ID).dnsproxy
+        PRODUCT_NAME: $(SAFEROOM_APP_ID).dnsproxy
         PRODUCT_MODULE_NAME: SafeRoomDNSProxy
         INFOPLIST_FILE: Extension/Resources/Info.plist
         CODE_SIGN_ENTITLEMENTS: Extension/Resources/DNSProxy.entitlements

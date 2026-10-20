@@ -7,3 +7,6 @@ xcuserdata/
 .DS_Store
 *.xcarchive
 *.zip
+
+# Local signing settings (Config/signing.local.example explains them).
+Config/signing.local

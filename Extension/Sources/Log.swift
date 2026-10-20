@@ -5,7 +5,7 @@ import SafeRoomCore
 /// `.public`: without that, the unified log redacts them as <private> and a
 /// SIEM collecting the log sees nothing useful.
 ///
-///     log stream --predicate 'subsystem == "com.oldsalt.saferoom"'
+///     log stream --predicate 'subsystem == "<app bundle ID>"'
 enum Log {
     static let provider = Logger(subsystem: SafeRoom.logSubsystem, category: "provider")
     static let list = Logger(subsystem: SafeRoom.logSubsystem, category: "list")

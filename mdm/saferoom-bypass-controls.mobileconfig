@@ -19,7 +19,7 @@
 			<key>PayloadType</key>
 			<string>com.google.Chrome</string>
 			<key>PayloadIdentifier</key>
-			<string>com.oldsalt.saferoom.profile.bypass.chrome</string>
+			<string>__APP_ID__.profile.bypass.chrome</string>
 			<key>PayloadUUID</key>
 			<string>2BEB5B30-409C-4B83-8937-87F004E47569</string>
 			<key>PayloadVersion</key>
@@ -34,7 +34,7 @@
 			<key>PayloadType</key>
 			<string>com.microsoft.Edge</string>
 			<key>PayloadIdentifier</key>
-			<string>com.oldsalt.saferoom.profile.bypass.edge</string>
+			<string>__APP_ID__.profile.bypass.edge</string>
 			<key>PayloadUUID</key>
 			<string>CF610686-6A2B-45DF-8961-174FC8010FD8</string>
 			<key>PayloadVersion</key>
@@ -49,7 +49,7 @@
 			<key>PayloadType</key>
 			<string>com.brave.Browser</string>
 			<key>PayloadIdentifier</key>
-			<string>com.oldsalt.saferoom.profile.bypass.brave</string>
+			<string>__APP_ID__.profile.bypass.brave</string>
 			<key>PayloadUUID</key>
 			<string>8B52DB25-C184-44A1-A396-B5D562E8FBA5</string>
 			<key>PayloadVersion</key>
@@ -64,7 +64,7 @@
 			<key>PayloadType</key>
 			<string>org.mozilla.firefox</string>
 			<key>PayloadIdentifier</key>
-			<string>com.oldsalt.saferoom.profile.bypass.firefox</string>
+			<string>__APP_ID__.profile.bypass.firefox</string>
 			<key>PayloadUUID</key>
 			<string>66BDDC7A-8C22-43A3-9461-761A28A77DBA</string>
 			<key>PayloadVersion</key>
@@ -85,7 +85,7 @@
 			<key>PayloadType</key>
 			<string>com.apple.applicationaccess</string>
 			<key>PayloadIdentifier</key>
-			<string>com.oldsalt.saferoom.profile.bypass.privaterelay</string>
+			<string>__APP_ID__.profile.bypass.privaterelay</string>
 			<key>PayloadUUID</key>
 			<string>78088747-3BB8-46C9-B0BC-F34F19FA29CD</string>
 			<key>PayloadVersion</key>
@@ -99,7 +99,7 @@
 	<key>PayloadDescription</key>
 	<string>Turns off browser DNS over HTTPS and iCloud Private Relay, so DNS lookups pass through SafeRoom.</string>
 	<key>PayloadIdentifier</key>
-	<string>com.oldsalt.saferoom.profile.bypass</string>
+	<string>__APP_ID__.profile.bypass</string>
 	<key>PayloadOrganization</key>
 	<string>SafeRoom</string>
 	<key>PayloadScope</key>

@@ -8,7 +8,8 @@
 
   Before you deploy:
   - Replace the ProviderConfiguration values with your own (docs/mdm.md).
-  - If you build SafeRoom under another team, replace 346JJCHZP7 everywhere.
+  - __TEAM_ID__, __APP_ID__ and __EXT_ID__ are filled in by tools/package.sh,
+    which writes ready copies to the release folder. Use those.
   - Generate new PayloadUUID values (uuidgen) for your organization.
 
   The SafeRoom app must be in /Applications, and must launch once (for
@@ -25,7 +26,7 @@
 			<key>PayloadType</key>
 			<string>com.apple.system-extension-policy</string>
 			<key>PayloadIdentifier</key>
-			<string>com.oldsalt.saferoom.profile.sysext</string>
+			<string>__APP_ID__.profile.sysext</string>
 			<key>PayloadUUID</key>
 			<string>AA76D848-1B6F-492B-8177-B2D4EC49A1FD</string>
 			<key>PayloadVersion</key>
@@ -36,18 +37,18 @@
 			<false/>
 			<key>AllowedSystemExtensions</key>
 			<dict>
-				<key>346JJCHZP7</key>
+				<key>__TEAM_ID__</key>
 				<array>
-					<string>com.oldsalt.saferoom.dnsproxy</string>
+					<string>__EXT_ID__</string>
 				</array>
 			</dict>
 			<!-- No AllowedSystemExtensionTypes key: it would approve every
 			     network extension from the team, not only SafeRoom's. -->
 			<key>NonRemovableSystemExtensions</key>
 			<dict>
-				<key>346JJCHZP7</key>
+				<key>__TEAM_ID__</key>
 				<array>
-					<string>com.oldsalt.saferoom.dnsproxy</string>
+					<string>__EXT_ID__</string>
 				</array>
 			</dict>
 		</dict>
@@ -58,7 +59,7 @@
 			<key>PayloadType</key>
 			<string>com.apple.dnsProxy.managed</string>
 			<key>PayloadIdentifier</key>
-			<string>com.oldsalt.saferoom.profile.dnsproxy</string>
+			<string>__APP_ID__.profile.dnsproxy</string>
 			<key>PayloadUUID</key>
 			<string>BCAE7B54-2B9C-4F6F-9496-DBD5DB9ED43E</string>
 			<key>PayloadVersion</key>
@@ -66,9 +67,9 @@
 			<key>PayloadDisplayName</key>
 			<string>SafeRoom DNS proxy</string>
 			<key>AppBundleIdentifier</key>
-			<string>com.oldsalt.saferoom</string>
+			<string>__APP_ID__</string>
 			<key>ProviderBundleIdentifier</key>
-			<string>com.oldsalt.saferoom.dnsproxy</string>
+			<string>__EXT_ID__</string>
 			<key>ProviderConfiguration</key>
 			<dict>
 				<!-- The list. HTTPS only. -->
@@ -114,7 +115,7 @@
 	<key>PayloadDescription</key>
 	<string>Approves the SafeRoom system extension and turns on its DNS proxy.</string>
 	<key>PayloadIdentifier</key>
-	<string>com.oldsalt.saferoom.profile</string>
+	<string>__APP_ID__.profile</string>
 	<key>PayloadOrganization</key>
 	<string>SafeRoom</string>
 	<key>PayloadScope</key>

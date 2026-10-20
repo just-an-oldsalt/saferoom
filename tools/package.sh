@@ -10,16 +10,20 @@
 # extension with no prompt.
 #
 # INSTALLER_IDENTITY: the "Developer ID Installer" identity that signs the
-# package, which is then notarized. Set it to an empty string for an
-# unsigned package: Jamf accepts that for its own installs, but Gatekeeper
-# refuses it on double-click.
+# package, found in the keychain by team (Config/Identity.xcconfig). Set it
+# to an empty string for an unsigned package: Jamf accepts that for its own
+# installs, but Gatekeeper refuses it on double-click.
+#
+# The MDM profiles and the Jamf script are rendered with this build's
+# identity into $OUT/mdm/, ready to upload.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="${OUT:-$HOME/Library/Caches/saferoom/release}"
 APP="$OUT/SafeRoom.app"
-NOTARY_PROFILE="${NOTARY_PROFILE:-notary-profile}"
-INSTALLER_IDENTITY="${INSTALLER_IDENTITY-Developer ID Installer: DEVELOPER NAME (346JJCHZP7)}"
+source "$HERE/tools/identity.sh"
+INSTALLER_IDENTITY="${INSTALLER_IDENTITY-$(find_identity "Developer ID Installer")}"
+[[ -z "$INSTALLER_IDENTITY" ]] || require_notary_profile
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Contents/Info.plist")
 BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP/Contents/Info.plist")
 PKG="$OUT/SafeRoom-$VERSION-$BUILD.pkg"
@@ -46,7 +50,7 @@ cat > "$WORK/scripts/postinstall" <<'POST'
 PATH=/usr/bin:/bin:/usr/sbin:/sbin
 BUNDLE=/Applications/SafeRoom.app
 # Developer ID certificate, our team, the exact app. A development build fails.
-REQUIREMENT='anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "346JJCHZP7" and identifier "com.oldsalt.saferoom"'
+REQUIREMENT='__REQUIREMENT__'
 if ! /usr/bin/codesign --verify --deep --strict -R="$REQUIREMENT" "$BUNDLE"; then
     echo "SafeRoom postinstall: signature check failed; not activating"
     exit 0
@@ -67,6 +71,8 @@ fi
 echo "SafeRoom postinstall: --activate exited $?"
 exit 0
 POST
+render "$WORK/scripts/postinstall" "$WORK/scripts/postinstall.rendered"
+mv "$WORK/scripts/postinstall.rendered" "$WORK/scripts/postinstall"
 chmod +x "$WORK/scripts/postinstall"
 
 # Keep the bundle where we put it: no relocation to a copy elsewhere.
@@ -76,11 +82,17 @@ pkgbuild --analyze --root "$WORK/root" "$WORK/components.plist" >/dev/null
 SIGN=()
 [[ -n "$INSTALLER_IDENTITY" ]] && SIGN=(--sign "$INSTALLER_IDENTITY")
 pkgbuild --root "$WORK/root" --component-plist "$WORK/components.plist" \
-    --scripts "$WORK/scripts" --identifier com.oldsalt.saferoom.pkg \
+    --scripts "$WORK/scripts" --identifier "$APP_ID.pkg" \
     --version "$VERSION.$BUILD" --install-location / ${SIGN[@]+"${SIGN[@]}"} "$PKG"
 
 if [[ -n "$INSTALLER_IDENTITY" ]]; then
     xcrun notarytool submit "$PKG" --keychain-profile "$NOTARY_PROFILE" --wait
     xcrun stapler staple "$PKG"
 fi
+mkdir -p "$OUT/mdm"
+for f in saferoom.mobileconfig saferoom-bypass-controls.mobileconfig jamf-extension-attribute.sh; do
+    render "$HERE/mdm/$f" "$OUT/mdm/$f"
+done
+plutil -lint "$OUT/mdm/"*.mobileconfig >/dev/null
 echo "Package: $PKG"
+echo "MDM files: $OUT/mdm/"

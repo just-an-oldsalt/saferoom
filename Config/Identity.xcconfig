@@ -1,0 +1,9 @@
+// The identity SafeRoom is built and signed under. These two lines are the
+// only place it is written down: the code, the entitlements, the release
+// scripts, and the MDM files all derive their names from them.
+//
+// To build SafeRoom under your organization, set your Apple Developer team ID
+// and a bundle ID you own, then follow docs/building.md.
+
+SAFEROOM_TEAM_ID = 346JJCHZP7
+SAFEROOM_APP_ID = com.oldsalt.saferoom

@@ -89,7 +89,7 @@ SafeRoom logs only blocked lookups. It does not log the other lookups. The log e
 
 ## Supply chain
 
-The app and the extension are signed with a personal Developer ID (team `346JJCHZP7`). The team ID appears in the profiles, the Jamf script, the scripts, and the code signature checks. If that personal account is revoked, every Mac stops trusting SafeRoom. The MDM profile approves only SafeRoom's extension, not every extension of the team. Before you deploy SafeRoom across a fleet, build and sign it under your organization's Developer ID, and change the team ID in the profile.
+The published binaries are signed with the maintainer's personal Developer ID. If that account is revoked, every Mac that runs those binaries stops trusting SafeRoom. The MDM profile approves only SafeRoom's extension, not every extension of the team. To deploy across a fleet, build and sign SafeRoom under your organization's Developer ID, as [building.md](building.md) explains.
 
 ## Not tested yet
 

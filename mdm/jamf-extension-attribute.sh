@@ -1,6 +1,9 @@
 #!/bin/sh
 # Jamf Pro extension attribute: SafeRoom health.
 #
+# Use the copy that tools/package.sh writes to the release folder: it has
+# __REQUIREMENT__ filled in with this build's team and bundle ID.
+#
 # Data type: String. Jamf runs this as root during inventory. It prints one
 # line, for example:
 #
@@ -21,7 +24,7 @@
 
 BUNDLE="/Applications/SafeRoom.app"
 # Developer ID certificate, our team, the exact app. A development build fails.
-REQUIREMENT='anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "346JJCHZP7" and identifier "com.oldsalt.saferoom"'
+REQUIREMENT='__REQUIREMENT__'
 
 if [ ! -e "$BUNDLE" ]; then
     echo "<result>NOT INSTALLED</result>"
