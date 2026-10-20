@@ -25,6 +25,9 @@ final class ProxyConfigurator {
         }
     }
 
+    // Writes to the configuration: development builds only. A fleet build
+    // must not let a user change or disable the proxy from the app.
+    #if SAFEROOM_DEV_CONTROLS
     /// Development hook. Launching the app with a `-TestPolicy` argument
     /// writes that dictionary into the proxy configuration. The value is
     /// old-style plist text, and nothing is saved in the app's preferences:
@@ -78,4 +81,5 @@ final class ProxyConfigurator {
             }
         }
     }
+    #endif
 }

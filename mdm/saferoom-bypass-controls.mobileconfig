@@ -79,7 +79,8 @@
 				<true/>
 			</dict>
 		</dict>
-		<!-- iCloud Private Relay. -->
+		<!-- iCloud Private Relay. macOS applies this key only on a supervised
+		     Mac (Automated Device Enrollment). -->
 		<dict>
 			<key>PayloadType</key>
 			<string>com.apple.applicationaccess</string>

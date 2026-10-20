@@ -96,3 +96,17 @@ private func evaluate(
     #expect(retryDelay(afterFailures: 3, refresh: hour) == .seconds(240))
     #expect(retryDelay(afterFailures: 20, refresh: hour) == hour)
 }
+
+@Test func fetchStateDecodesOlderFile() throws {
+    let old = Data(#"{"url":"https://x.example/list","etag":"\"abc\""}"#.utf8)
+    let state = try JSONDecoder().decode(FetchState.self, from: old)
+    #expect(state.etag == "\"abc\"" && state.lastSuccessAt == nil)
+}
+
+@Test func retargetKeepsDates() {
+    var state = FetchState(url: "https://a.example/list", etag: "e", lastModified: "m")
+    state.lastSuccessAt = Date(timeIntervalSince1970: 1)
+    state.retarget("https://b.example/list")
+    #expect(state.etag == nil && state.lastModified == nil)
+    #expect(state.lastSuccessAt == Date(timeIntervalSince1970: 1))
+}

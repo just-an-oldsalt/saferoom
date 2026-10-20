@@ -8,11 +8,13 @@ SafeRoom ignores keys that it does not know. If a value has the wrong type or an
 
 You need three files from this repository:
 
-- `SafeRoom-<version>.pkg`, built with `make release package`.
+- `SafeRoom-<version>.pkg`, built with `make release package`. Do not set `DEV_CONTROLS=1` for a fleet build (see the threat model).
 - `mdm/saferoom.mobileconfig`, which approves the extension and holds the policy.
 - `mdm/saferoom-bypass-controls.mobileconfig`, which turns off browser DNS over HTTPS and iCloud Private Relay.
 
 Do the steps in this order. If the package installs before the profile, macOS asks the user to approve the extension.
+
+Before the first fleet rollout, install the package on one test Mac with `sudo installer -pkg SafeRoom-<version>.pkg -target /`, with a user logged in. Then run `SafeRoom --status`. The post-install script submits the extension as the logged-in user. This step is not tested yet.
 
 1. Edit `ProviderConfiguration` in `mdm/saferoom.mobileconfig` for your environment. The keys are in the next section.
 2. In Jamf Pro, upload both profiles under Computers > Configuration Profiles. Scope them to a test group first.

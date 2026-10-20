@@ -66,11 +66,20 @@ xcodegen generate >/dev/null
 rm -rf "$ARCHIVE" "$APP" "$OUT/SafeRoom.zip"
 mkdir -p "$OUT"
 
+# DEV_CONTROLS=1 keeps the app's proxy buttons and -TestPolicy argument, for
+# testing without MDM. Never ship such a build to a fleet: a user could turn
+# the proxy off from the app window.
+EXTRA=()
+if [[ "${DEV_CONTROLS:-0}" == 1 ]]; then
+    echo "==> DEV_CONTROLS=1: development build, not for fleet use"
+    EXTRA=('SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) SAFEROOM_DEV_CONTROLS')
+fi
+
 echo "==> archive"
 xcodebuild archive -quiet \
     -project SafeRoom.xcodeproj -scheme SafeRoom \
     -destination 'generic/platform=macOS' \
-    -archivePath "$ARCHIVE"
+    -archivePath "$ARCHIVE" ${EXTRA[@]+"${EXTRA[@]}"}
 
 echo "==> sign with $IDENTITY"
 ditto "$ARCHIVE/Products/Applications/SafeRoom.app" "$APP"

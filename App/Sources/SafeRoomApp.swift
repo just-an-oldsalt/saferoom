@@ -11,7 +11,9 @@ struct SafeRoomApp: App {
             StatusView(activator: activator, proxy: proxy, monitor: monitor)
                 .task {
                     activator.activate()
+                    #if SAFEROOM_DEV_CONTROLS
                     proxy.applyTestPolicy()
+                    #endif
                     proxy.refresh()
                 }
                 .task { await monitor.poll() }
@@ -69,13 +71,18 @@ struct StatusView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     LabeledContent("Extension", value: activator.state)
                     LabeledContent("DNS proxy", value: proxy.state)
+                    // Development builds only (make release DEV_CONTROLS=1).
+                    // In a fleet build, MDM alone turns the proxy on and off;
+                    // a user cannot disable it from this window.
+                    #if SAFEROOM_DEV_CONTROLS
                     HStack {
                         Button("Activate extension") { activator.activate() }
                         Button("Enable DNS proxy") { proxy.setEnabled(true) }
                         Button("Disable") { proxy.setEnabled(false) }
                     }
-                    Text("Under MDM, the profile enables the proxy. These buttons are for testing.")
+                    Text("Development build. Under MDM, the profile enables the proxy.")
                         .font(.caption).foregroundStyle(.secondary)
+                    #endif
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }

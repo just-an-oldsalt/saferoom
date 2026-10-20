@@ -109,15 +109,32 @@ extension CompiledList {
 }
 
 /// What the fetcher remembers between runs, so an unchanged list costs a 304.
+///
+/// The dates survive restarts, so health reports the list's real age: a Mac
+/// that boots after a week offline shows a week-old check, not a fresh one.
+/// Every field is optional, so an older file still decodes.
 public struct FetchState: Codable, Sendable, Equatable {
     public var url: String?
     public var etag: String?
     public var lastModified: String?
+    /// The last check that ended with a current list (accepted or unchanged).
+    public var lastSuccessAt: Date?
+    /// When the list now in the cache was installed.
+    public var listInstalledAt: Date?
 
     public init(url: String? = nil, etag: String? = nil, lastModified: String? = nil) {
         self.url = url
         self.etag = etag
         self.lastModified = lastModified
+    }
+
+    /// Points the state at another URL. The validators belong to the old
+    /// URL; the dates still describe the list in use.
+    public mutating func retarget(_ url: String) {
+        guard self.url != url else { return }
+        self.url = url
+        etag = nil
+        lastModified = nil
     }
 }
 

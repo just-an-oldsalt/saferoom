@@ -33,10 +33,22 @@ ditto "$APP" "$WORK/root/Applications/SafeRoom.app"
 
 cat > "$WORK/scripts/postinstall" <<'POST'
 #!/bin/sh
-# Submit the system extension. With the MDM profile in place this needs no
-# user. A failure here is logged but does not fail the install: the next
-# launch of the app submits the extension again.
-/Applications/SafeRoom.app/Contents/MacOS/SafeRoom --activate || true
+# Submit the system extension. macOS takes the request from an app in a user
+# session, so run it as the user at the console. With the MDM profile in
+# place, no prompt appears.
+#
+# With nobody logged in, the request is tried as root, which can fail. The
+# app also submits the request each time it opens. A failure here does not
+# fail the install.
+APP=/Applications/SafeRoom.app/Contents/MacOS/SafeRoom
+USER_NAME=$(stat -f %Su /dev/console)
+if [ -n "$USER_NAME" ] && [ "$USER_NAME" != "root" ] && [ "$USER_NAME" != "loginwindow" ]; then
+    USER_ID=$(id -u "$USER_NAME")
+    launchctl asuser "$USER_ID" sudo -u "$USER_NAME" "$APP" --activate
+else
+    "$APP" --activate
+fi
+echo "SafeRoom postinstall: --activate exited $?"
 exit 0
 POST
 chmod +x "$WORK/scripts/postinstall"
@@ -49,7 +61,7 @@ SIGN=()
 [[ -n "$INSTALLER_IDENTITY" ]] && SIGN=(--sign "$INSTALLER_IDENTITY")
 pkgbuild --root "$WORK/root" --component-plist "$WORK/components.plist" \
     --scripts "$WORK/scripts" --identifier com.oldsalt.saferoom.pkg \
-    --version "$VERSION.$BUILD" --install-location / "${SIGN[@]}" "$PKG"
+    --version "$VERSION.$BUILD" --install-location / ${SIGN[@]+"${SIGN[@]}"} "$PKG"
 
 if [[ -n "$INSTALLER_IDENTITY" ]]; then
     xcrun notarytool submit "$PKG" --keychain-profile "$NOTARY_PROFILE" --wait

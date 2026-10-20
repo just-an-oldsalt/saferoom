@@ -19,8 +19,9 @@ actor ListLoader {
     // Status, reported over XPC.
     private var listSummary: ExtensionStatus.ListSummary?
     private var lastAttempt: ExtensionStatus.Attempt?
-    private var lastSuccessAt: Date?
     private var nextRefreshAt: Date?
+    /// Validators and dates, kept on disk across restarts.
+    private var state = ListLoader.loadFetchState()
 
     init(policy: ProviderPolicy, store: BlocklistStore) {
         self.policy = policy
@@ -30,7 +31,8 @@ actor ListLoader {
 
     func start() {
         if let cached = Self.loadCache() {
-            install(cached, invalid: [], from: "cache")
+            // The cached list is as old as its install, not as this start.
+            install(cached, invalid: [], from: "cache", at: state.listInstalledAt)
         }
         loop = Task { await run() }
     }
@@ -52,7 +54,10 @@ actor ListLoader {
         let ok = await refresh()
         refreshing = false
         failures = ok ? 0 : failures + 1
-        if ok { lastSuccessAt = Date() }
+        if ok {
+            state.lastSuccessAt = Date()
+            Self.saveFetchState(state)
+        }
         let delay = ok ? policy.refreshInterval : retryDelay(afterFailures: failures, refresh: policy.refreshInterval)
         if !ok { Log.list.notice("retrying in \(delay.components.seconds)s (failure \(self.failures))") }
         nextRefreshAt = Date().addingTimeInterval(TimeInterval(delay.components.seconds))
@@ -73,7 +78,7 @@ actor ListLoader {
     }
 
     func status() -> (list: ExtensionStatus.ListSummary?, attempt: ExtensionStatus.Attempt?, lastSuccessAt: Date?, nextRefreshAt: Date?, failures: Int) {
-        (listSummary, lastAttempt, lastSuccessAt, nextRefreshAt, failures)
+        (listSummary, lastAttempt, state.lastSuccessAt, nextRefreshAt, failures)
     }
 
     /// True when the current list is the newest one available, even if that
@@ -91,8 +96,7 @@ actor ListLoader {
     }
 
     private func fetch(_ url: URL) async -> Bool {
-        var state = Self.loadFetchState()
-        if state.url != url.absoluteString { state = FetchState(url: url.absoluteString) }
+        state.retarget(url.absoluteString)
         do {
             // Conditional headers only when a list is loaded. A 304 with no
             // list in memory would leave the proxy with nothing to install.
@@ -115,7 +119,6 @@ actor ListLoader {
             if accepted, response.status == 200 {
                 state.etag = response.etag
                 state.lastModified = response.lastModified
-                Self.saveFetchState(state)
             }
             return accepted
         } catch {
@@ -153,6 +156,8 @@ actor ListLoader {
         case .accept(let list, let invalid):
             install(list, invalid: invalid, from: source)
             Self.writeCache(list)
+            state.listInstalledAt = Date()
+            Self.saveFetchState(state)
             record(source, .accepted)
             return true
         case .reject(let reason):
@@ -166,9 +171,9 @@ actor ListLoader {
         lastAttempt = .init(at: Date(), source: ExtensionStatus.redact(source), result: result, detail: detail)
     }
 
-    private func install(_ list: CompiledList, invalid: [InvalidLine], from source: String) {
+    private func install(_ list: CompiledList, invalid: [InvalidLine], from source: String, at installedAt: Date? = nil) {
         current = list
-        listSummary = .init(list, source: source, loadedAt: Date())
+        listSummary = .init(list, source: source, loadedAt: installedAt ?? Date())
         store.replace(policy.blocklist(list))
         let s = list.stats
         Log.list.notice(
@@ -200,7 +205,7 @@ actor ListLoader {
         write(list.serialized(), to: "blocklist.cache")
     }
 
-    private static func loadFetchState() -> FetchState {
+    static func loadFetchState() -> FetchState {
         guard let url = container?.appendingPathComponent("fetch-state.json"),
               let data = try? Data(contentsOf: url),
               let state = try? JSONDecoder().decode(FetchState.self, from: data)
@@ -208,7 +213,7 @@ actor ListLoader {
         return state
     }
 
-    private static func saveFetchState(_ state: FetchState) {
+    static func saveFetchState(_ state: FetchState) {
         if let data = try? JSONEncoder().encode(state) { write(data, to: "fetch-state.json") }
     }
 

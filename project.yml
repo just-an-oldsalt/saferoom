@@ -17,7 +17,7 @@ packages:
 settings:
   base:
     MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: "11"
+    CURRENT_PROJECT_VERSION: "12"
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
     DEVELOPMENT_TEAM: 346JJCHZP7
@@ -47,6 +47,11 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: SafeRoom
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.utilities
         CODE_SIGN_ENTITLEMENTS: App/Resources/SafeRoom.entitlements
+      # Dev controls (proxy buttons, -TestPolicy) are in Debug builds, and in
+      # a release only with `make release DEV_CONTROLS=1`.
+      configs:
+        Debug:
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) DEBUG SAFEROOM_DEV_CONTROLS"
 
   SafeRoomDNSProxy:
     type: system-extension

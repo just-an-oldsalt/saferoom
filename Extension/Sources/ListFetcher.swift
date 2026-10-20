@@ -6,8 +6,8 @@ import SafeRoomCore
 ///
 /// - The body goes to a temporary file, and its size is checked before it is
 ///   read, so a huge response cannot exhaust the extension's memory.
-/// - Redirects are followed only to the same host over HTTPS. The bearer
-///   token is never sent anywhere the policy did not name.
+/// - Credentials (bearer token or client certificate) go only to the list
+///   URL's host. Redirects are followed only to the same host and scheme.
 /// - Client certificates come from the keychain, chosen by policy
 ///   (docs/mtls-okta.md).
 final class ListFetcher: NSObject, URLSessionTaskDelegate, Sendable {
@@ -32,10 +32,19 @@ final class ListFetcher: NSObject, URLSessionTaskDelegate, Sendable {
 
     private let auth: ProviderPolicy.Auth
     private let maxBytes: Int
+    /// The only host that gets credentials: the list URL's. A hash file on
+    /// another host is fetched without them.
+    private let credentialHost: String?
 
     init(policy: ProviderPolicy) {
         self.auth = policy.auth
         self.maxBytes = policy.maxListBytes
+        self.credentialHost = policy.listURL?.host()?.lowercased()
+    }
+
+    private func mayAuthenticate(_ url: URL?) -> Bool {
+        guard let host = url?.host()?.lowercased() else { return false }
+        return host == credentialHost
     }
 
     private var session: URLSession {
@@ -53,7 +62,7 @@ final class ListFetcher: NSObject, URLSessionTaskDelegate, Sendable {
     func fetch(_ url: URL, state: FetchState?) async throws -> Response {
         var request = URLRequest(url: url)
         request.setValue("SafeRoom/\(Self.version)", forHTTPHeaderField: "User-Agent")
-        if case .bearer(let token) = auth {
+        if case .bearer(let token) = auth, mayAuthenticate(url) {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         if let etag = state?.etag { request.setValue(etag, forHTTPHeaderField: "If-None-Match") }
@@ -94,6 +103,10 @@ final class ListFetcher: NSObject, URLSessionTaskDelegate, Sendable {
         _ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge
     ) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
         guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodClientCertificate else {
+            return (.performDefaultHandling, nil)
+        }
+        guard mayAuthenticate(task.originalRequest?.url) else {
+            Log.list.error("refusing a client certificate to a host other than the list URL's")
             return (.performDefaultHandling, nil)
         }
         guard case .clientCertificate(let subject, let issuer) = auth else {

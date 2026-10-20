@@ -26,8 +26,11 @@ app: project
 ## Developer ID archive, notarize and staple.
 NOTARY_PROFILE ?= notary-profile
 
+## DEV_CONTROLS=1 keeps the app's proxy buttons and -TestPolicy (not for fleets).
+DEV_CONTROLS ?= 0
+
 release:
-	NOTARY_PROFILE="$(NOTARY_PROFILE)" tools/release.sh
+	NOTARY_PROFILE="$(NOTARY_PROFILE)" DEV_CONTROLS="$(DEV_CONTROLS)" tools/release.sh
 
 ## Installer package for MDM, from the release app.
 package:
