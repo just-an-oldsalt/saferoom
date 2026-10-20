@@ -1,6 +1,6 @@
 # SafeRoom. The .xcodeproj is generated from project.yml and not committed,
 # so `make open` is the way in.
-.PHONY: open project test app release clean
+.PHONY: open project test app release package clean
 
 ## Generate the project and open it.
 open: project
@@ -28,6 +28,10 @@ NOTARY_PROFILE ?= notary-profile
 
 release:
 	NOTARY_PROFILE="$(NOTARY_PROFILE)" tools/release.sh
+
+## Installer package for MDM, from the release app.
+package:
+	NOTARY_PROFILE="$(NOTARY_PROFILE)" tools/package.sh
 
 clean:
 	rm -rf SafeRoom.xcodeproj .build

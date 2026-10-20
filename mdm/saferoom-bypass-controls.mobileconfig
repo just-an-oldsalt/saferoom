@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  SafeRoom: close the common ways around a DNS proxy.
+
+  SafeRoom sees plain DNS only. A browser with DNS over HTTPS (DoH) turned on,
+  and iCloud Private Relay, send their lookups encrypted and past the proxy.
+  This profile turns those off. Deploy it with saferoom.mobileconfig.
+
+  Remove the payload for a browser you do not deploy, or keep it: a payload for
+  a browser that is not installed has no effect.
+-->
+<plist version="1.0">
+<dict>
+	<key>PayloadContent</key>
+	<array>
+		<!-- Google Chrome. -->
+		<dict>
+			<key>PayloadType</key>
+			<string>com.google.Chrome</string>
+			<key>PayloadIdentifier</key>
+			<string>com.oldsalt.saferoom.profile.bypass.chrome</string>
+			<key>PayloadUUID</key>
+			<string>2BEB5B30-409C-4B83-8937-87F004E47569</string>
+			<key>PayloadVersion</key>
+			<integer>1</integer>
+			<key>DnsOverHttpsMode</key>
+			<string>off</string>
+			<key>BuiltInDnsClientEnabled</key>
+			<false/>
+		</dict>
+		<!-- Microsoft Edge. -->
+		<dict>
+			<key>PayloadType</key>
+			<string>com.microsoft.Edge</string>
+			<key>PayloadIdentifier</key>
+			<string>com.oldsalt.saferoom.profile.bypass.edge</string>
+			<key>PayloadUUID</key>
+			<string>CF610686-6A2B-45DF-8961-174FC8010FD8</string>
+			<key>PayloadVersion</key>
+			<integer>1</integer>
+			<key>DnsOverHttpsMode</key>
+			<string>off</string>
+			<key>BuiltInDnsClientEnabled</key>
+			<false/>
+		</dict>
+		<!-- Brave. -->
+		<dict>
+			<key>PayloadType</key>
+			<string>com.brave.Browser</string>
+			<key>PayloadIdentifier</key>
+			<string>com.oldsalt.saferoom.profile.bypass.brave</string>
+			<key>PayloadUUID</key>
+			<string>8B52DB25-C184-44A1-A396-B5D562E8FBA5</string>
+			<key>PayloadVersion</key>
+			<integer>1</integer>
+			<key>DnsOverHttpsMode</key>
+			<string>off</string>
+			<key>BuiltInDnsClientEnabled</key>
+			<false/>
+		</dict>
+		<!-- Mozilla Firefox. Locked, so the user cannot turn DoH back on. -->
+		<dict>
+			<key>PayloadType</key>
+			<string>org.mozilla.firefox</string>
+			<key>PayloadIdentifier</key>
+			<string>com.oldsalt.saferoom.profile.bypass.firefox</string>
+			<key>PayloadUUID</key>
+			<string>66BDDC7A-8C22-43A3-9461-761A28A77DBA</string>
+			<key>PayloadVersion</key>
+			<integer>1</integer>
+			<key>EnterprisePoliciesEnabled</key>
+			<true/>
+			<key>DNSOverHTTPS</key>
+			<dict>
+				<key>Enabled</key>
+				<false/>
+				<key>Locked</key>
+				<true/>
+			</dict>
+		</dict>
+		<!-- iCloud Private Relay. -->
+		<dict>
+			<key>PayloadType</key>
+			<string>com.apple.applicationaccess</string>
+			<key>PayloadIdentifier</key>
+			<string>com.oldsalt.saferoom.profile.bypass.privaterelay</string>
+			<key>PayloadUUID</key>
+			<string>78088747-3BB8-46C9-B0BC-F34F19FA29CD</string>
+			<key>PayloadVersion</key>
+			<integer>1</integer>
+			<key>allowCloudPrivateRelay</key>
+			<false/>
+		</dict>
+	</array>
+	<key>PayloadDisplayName</key>
+	<string>SafeRoom bypass controls</string>
+	<key>PayloadDescription</key>
+	<string>Turns off browser DNS over HTTPS and iCloud Private Relay, so DNS lookups pass through SafeRoom.</string>
+	<key>PayloadIdentifier</key>
+	<string>com.oldsalt.saferoom.profile.bypass</string>
+	<key>PayloadOrganization</key>
+	<string>SafeRoom</string>
+	<key>PayloadScope</key>
+	<string>System</string>
+	<key>PayloadType</key>
+	<string>Configuration</string>
+	<key>PayloadUUID</key>
+	<string>B9F4DC73-0553-4F7B-A467-A397503565A0</string>
+	<key>PayloadVersion</key>
+	<integer>1</integer>
+</dict>
+</plist>

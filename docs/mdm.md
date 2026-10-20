@@ -4,6 +4,27 @@ An MDM configures SafeRoom with the DNS Proxy payload (`com.apple.dnsProxy.manag
 
 SafeRoom ignores keys that it does not know. If a value has the wrong type or an invalid form, SafeRoom uses the default value for that key. A typing error in a profile never stops the proxy.
 
+## Deploy with Jamf Pro
+
+You need three files from this repository:
+
+- `SafeRoom-<version>.pkg`, built with `make release package`.
+- `mdm/saferoom.mobileconfig`, which approves the extension and holds the policy.
+- `mdm/saferoom-bypass-controls.mobileconfig`, which turns off browser DNS over HTTPS and iCloud Private Relay.
+
+Do the steps in this order. If the package installs before the profile, macOS asks the user to approve the extension.
+
+1. Edit `ProviderConfiguration` in `mdm/saferoom.mobileconfig` for your environment. The keys are in the next section.
+2. In Jamf Pro, upload both profiles under Computers > Configuration Profiles. Scope them to a test group first.
+3. Upload the package under Settings > Computer management > Packages.
+4. Create a policy that installs the package, with the same scope. The package's post-install script runs `SafeRoom --activate`, which submits the extension.
+5. Add `mdm/jamf-extension-attribute.sh` as an extension attribute. See "Status and Jamf inventory" below.
+6. On a test Mac, run `sudo /Applications/SafeRoom.app/Contents/MacOS/SafeRoom --status`. The JSON shows the list and the policy in use.
+
+To update SafeRoom, upload the new package and install it with a policy. macOS replaces the running extension. The cached list keeps blocking during the switch.
+
+To change the policy, edit the profile in Jamf. The extension reads the policy at each start of the proxy, so the change takes effect at the next start. A restart of the Mac starts the proxy again.
+
 ## Keys
 
 | Key | Type | Default | Meaning |
@@ -74,7 +95,7 @@ To report SafeRoom health in Jamf inventory, add [`mdm/jamf-extension-attribute.
 
 For example, a smart group with the criterion "SafeRoom health does not begin with OK" finds every Mac that needs attention.
 
-The app and the extension talk over XPC. Each side accepts the other only if Apple's code signing shows the same team ID. Other processes on the Mac cannot read the status or start a download.
+The app and the extension talk over XPC. Each side reads the code signature of the other, and refuses the connection unless the team ID is the same. Other processes on the Mac cannot read the status or start a download.
 
 ## Log
 

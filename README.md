@@ -12,13 +12,15 @@ The name comes from Dungeon Crawler Carl. In the dungeon, a safe room is the one
 
 This project is in early development. The proxy blocks domains and address ranges, over UDP and TCP, and it logs each block with the app that asked. It downloads its list from an HTTPS URL with a bearer token, rejects suspect lists, and keeps the last good list on any failure. On a test Mac, a list of 250,000 domains uses 2.2 MB of memory, and a lookup takes about 140 nanoseconds.
 
-The app shows the extension's status, and `SafeRoom --jamf` reports health to Jamf inventory. The sample MDM profiles do not exist yet. The client certificate (mTLS) download is built but not tested.
+The app shows the extension's status, and `SafeRoom --jamf` reports health to Jamf inventory. Sample MDM profiles and a signed installer package are ready. Deployment through Jamf Pro and the client certificate download are not tested yet. The client certificate (mTLS) download is built but not tested.
 
 ## Documentation
 
 - [docs/list-format.md](docs/list-format.md): the blocklist format.
 - [docs/mdm.md](docs/mdm.md): the MDM policy keys and the update rules.
 - [docs/mtls-okta.md](docs/mtls-okta.md): the client certificate download, and its open risks.
+- [docs/threat-model.md](docs/threat-model.md): what SafeRoom stops, what it does not stop, and how it fails.
+- [mdm/](mdm/): the MDM profiles and the Jamf extension attribute.
 
 ## Requirements
 
@@ -31,6 +33,7 @@ The app shows the extension's status, and `SafeRoom --jamf` reports health to Ja
 make test      # SafeRoomCore unit tests. Needs no signing.
 make open      # Generate SafeRoom.xcodeproj and open it in Xcode.
 make release   # Archive, sign with Developer ID, notarize and staple.
+make package   # Signed, notarized installer package for MDM.
 ```
 
 `make release` needs a Developer ID certificate, the Developer ID provisioning profiles, and a `notarytool` keychain profile. The header of `tools/release.sh` explains how to create them.
