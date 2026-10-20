@@ -1,6 +1,6 @@
 # Performance and limits
 
-This page gives measured numbers for SafeRoom: how large a list can be, how much memory it uses, how long an update takes, and how much time SafeRoom adds to a DNS lookup.
+This page gives measured numbers for SafeRoom. It covers list size limits, memory use, update cost, and the time that SafeRoom adds to a DNS lookup.
 
 All numbers come from a Mac mini with an Apple M4 chip and 16 GB of memory, macOS 27.0.1, SafeRoom 0.1.2 (build 16), on 2026-10-20. Run `make bench` to measure the list engine on your own hardware.
 
@@ -73,7 +73,7 @@ The cache file format allows up to 4 billion entries, so it is never the limit.
 
 ## Update cost
 
-For each refresh, SafeRoom sends a conditional request. If the list did not change, the server answers `304` with no body, and nothing else happens. SafeRoom also skips the compile when the downloaded list has the same SHA-256 as the list in use.
+For each refresh, SafeRoom sends a conditional request. If the list did not change, the server answers `304` with no body, and nothing else happens. If the downloaded list has the same SHA-256 as the list in use, SafeRoom also skips the compile.
 
 When the list changed, SafeRoom downloads it, compiles it, swaps it in, and writes a new cache file. For the 235,000-domain cookbook list, that is 1.7 MB on the wire and about 1 second of compile time on the test Mac.
 
