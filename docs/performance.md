@@ -8,7 +8,7 @@ All numbers come from a Mac mini with an Apple M4 chip and 16 GB of memory, macO
 
 | Question | Answer |
 |---|---|
-| Time added to a DNS lookup | About 0.14 ms at the median, 0.4 ms at p95, 0.7 ms at p99. |
+| Time added to a DNS lookup | Nothing measurable on a client socket that is already open. About 1.5 ms at the median when the client opens a new socket for the lookup. |
 | Memory of the running extension | 18.6 MB with a list of 235,000 domains and 1,700 address ranges. |
 | Memory per list entry | About 9 bytes. |
 | Comfortable list size | Up to about 3 million domains. |
@@ -20,21 +20,24 @@ All numbers come from a Mac mini with an Apple M4 chip and 16 GB of memory, macO
 
 ## Time added to each lookup
 
-These timings are for 500 queries of each kind, sent through the proxy on the test Mac. The router was one Wi-Fi hop away, with a ping time of 2.4 ms on average.
+These timings are for 500 queries of each kind to the router, which was one Wi-Fi hop away, with a ping time of 2.4 ms on average. For the first table, SafeRoom was turned off in System Settings.
 
 | Query | p50 | p95 | p99 |
 |---|---|---|---|
-| UDP, blocked (SafeRoom answers itself) | 0.14 ms | 0.37 ms | 0.70 ms |
-| UDP, forwarded to the router (`github.com`) | 3.81 ms | 5.81 ms | 8.05 ms |
-| UDP, forwarded to the router (`apple.com`) | 3.99 ms | 7.88 ms | 15.85 ms |
-| TCP, blocked | 0.22 ms | 0.71 ms | 1.17 ms |
-| TCP, forwarded (`github.com`) | 8.23 ms | 11.35 ms | 35.52 ms |
+| UDP, SafeRoom off, new socket per query (`github.com`) | 2.29 ms | 5.54 ms | 11.64 ms |
+| UDP, SafeRoom on, one socket for all queries | 2.29 ms | 5.08 ms | 7.93 ms |
+| UDP, SafeRoom on, new socket per query | 3.75 ms | 5.92 ms | 11.58 ms |
+| UDP, SafeRoom on, blocked name, one socket | 0.07 ms | 0.13 ms | 0.17 ms |
+| TCP, SafeRoom off (`github.com`) | 4.44 ms | 6.39 ms | 9.24 ms |
+| TCP, SafeRoom on | 8.23 ms | 11.35 ms | 35.52 ms |
 
-A blocked query takes the full path through SafeRoom: macOS hands it to the extension, the extension parses it, checks the list, and answers. No network is involved, so that time is the cost of SafeRoom itself. A forwarded query pays the same cost, plus the round trip to the resolver.
+On a client socket that is already open, SafeRoom adds no measurable time: the median is 2.29 ms with SafeRoom on and with it off. The list check takes less than 1 microsecond.
 
-So SafeRoom adds about 0.14 ms to a typical lookup. The list lookup inside that time is less than 1 microsecond.
+The cost is in connection setup. SafeRoom handles each client socket as one flow. For each new flow, it opens its own connection to the resolver, and that takes about 1.5 ms. An app that opens a new socket for each lookup pays this each time. An app that reuses a socket pays it once.
 
-TCP costs more because each TCP query opens two connections: one from the app to SafeRoom, and one from SafeRoom to the resolver. Clients use TCP only for large answers, so this case is rare.
+A blocked name never reaches the network. SafeRoom answers in 0.07 ms at the median.
+
+TCP costs more, because SafeRoom opens a second TCP connection to the resolver for each client connection. Clients use TCP only for large answers, so this case is rare.
 
 ## List size
 
