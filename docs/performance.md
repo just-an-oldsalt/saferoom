@@ -8,7 +8,7 @@ All numbers come from a Mac mini with an Apple M4 chip and 16 GB of memory, macO
 
 | Question | Answer |
 |---|---|
-| Time added to a DNS lookup | Nothing measurable on a client socket that is already open. About 1.5 ms at the median when the client opens a new socket for the lookup. |
+| Time added to a DNS lookup | Nothing measurable on a client socket that is already open. In 0.1.2, about 1.5 ms at the median when the client opened a new socket for the lookup. 0.1.3 removes most of this cost (see below). |
 | Memory of the running extension | 18.6 MB with a list of 235,000 domains and 1,700 address ranges. |
 | Memory per list entry | About 9 bytes. |
 | Comfortable list size | Up to about 3 million domains. |
@@ -33,7 +33,9 @@ These timings are for 500 queries of each kind to the router, which was one Wi-F
 
 On a client socket that is already open, SafeRoom adds no measurable time: the median is 2.29 ms with SafeRoom on and with it off. The list check takes less than 1 microsecond.
 
-The cost is in connection setup. SafeRoom handles each client socket as one flow. For each new flow, it opens its own connection to the resolver, and that takes about 1.5 ms. An app that opens a new socket for each lookup pays this each time. An app that reuses a socket pays it once.
+In 0.1.2, the cost was in connection setup. SafeRoom handled each client socket as one flow, and opened a new connection to the resolver for each flow. That took about 1.5 ms. An app that opened a new socket for each lookup paid this each time.
+
+From 0.1.3, all UDP flows share one connection per resolver. Each forwarded query gets a new random ID, and SafeRoom matches the answer to its flow by the ID and the question. A connection with no traffic for 60 seconds closes. The table above shows 0.1.2. The numbers for 0.1.3 are not measured yet.
 
 A blocked name never reaches the network. SafeRoom answers in 0.07 ms at the median.
 
@@ -84,7 +86,8 @@ When the list changed, SafeRoom downloads it, compiles it, swaps it in, and writ
 
 | Limit | Value | Why |
 |---|---|---|
-| Upstream connections per UDP client socket | 8 | A socket normally talks to one or two resolvers. The cap protects the extension's file descriptors. |
+| Shared UDP connections to resolvers | 32 | A Mac uses a few resolvers. When the cap is reached, the connection used least recently closes. |
+| Pending UDP queries per resolver | 8,192, for 10 seconds | Keeps most of the 16-bit ID space free, so a forged answer is unlikely to match. |
 | Names remembered by learned blocks | 10,000 for 5 minutes | Bounds memory under a flood of distinct names. |
 | Manual refreshes | One every 5 minutes | Any user can ask for a refresh. |
 | Shortest refresh interval | 5 minutes | Protects the list server. |
