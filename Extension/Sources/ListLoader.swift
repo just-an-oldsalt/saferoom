@@ -116,19 +116,32 @@ actor ListLoader {
     private func fetch(_ url: URL) async -> Bool {
         state.retarget(url.absoluteString)
         do {
-            // Conditional headers only when a list is loaded. A 304 with no
-            // list in memory would leave the proxy with nothing to install.
-            let response = try await fetcher.fetch(url, state: current == nil ? nil : state)
+            // With a hash file, the small hash file comes first, and the list
+            // is downloaded only when the hash names a list not in use.
             var expected: String?
-            if response.status == 200, let hashURL = policy.listSHA256URL {
+            if let hashURL = policy.listSHA256URL {
                 let hash = try await fetcher.fetch(hashURL, state: nil)
                 guard hash.status == 200 else {
                     Log.list.error("SHA-256 download failed: HTTP status \(hash.status)")
                     record(hashURL.absoluteString, .failed, "SHA-256 file: HTTP status \(hash.status)")
                     return false
                 }
-                expected = String(decoding: hash.body, as: UTF8.self)
+                let text = String(decoding: hash.body, as: UTF8.self)
+                switch ListUpdate.checkHash(text, current: current) {
+                case .upToDate:
+                    return apply(.unchanged, source: url.absoluteString)
+                case .badHashFile:
+                    return apply(.reject(.badHashFile), source: hashURL.absoluteString)
+                case .download:
+                    expected = text
+                }
             }
+            // Conditional headers only when a list is loaded and no hash file
+            // said it changed. A 304 with no list in memory would leave the
+            // proxy with nothing to install, and a 304 after a new hash would
+            // count as a success with the old list.
+            let conditional = current != nil && expected == nil
+            let response = try await fetcher.fetch(url, state: conditional ? state : nil)
             let accepted = apply(
                 ListUpdate.evaluate(
                     status: response.status, body: response.body, expectedSHA256: expected,

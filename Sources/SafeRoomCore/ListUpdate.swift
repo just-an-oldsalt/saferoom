@@ -69,6 +69,24 @@ public enum ListUpdate {
         return .accept(list, invalid: invalid)
     }
 
+    public enum HashCheck: Sendable, Equatable {
+        /// The hash file names the list in use. No download is needed.
+        case upToDate
+        /// No list is loaded, or the hash file names another list.
+        case download
+        case badHashFile
+    }
+
+    /// Decides from the small hash file alone whether the list must be
+    /// downloaded. A wrong hash file can only cause a missed update or a
+    /// rejected download, never an installed list: `evaluate` still checks
+    /// the downloaded bytes against the hash.
+    public static func checkHash(_ hashFile: String, current: CompiledList?) -> HashCheck {
+        guard let expected = parseHash(hashFile) else { return .badHashFile }
+        guard let current, current.sourceSHA256 == expected else { return .download }
+        return .upToDate
+    }
+
     /// Lists under this size skip the percentage check: going from 10 entries
     /// to 20 is a 100% change and is normal for a small list.
     public static let percentCheckMinimum = 100

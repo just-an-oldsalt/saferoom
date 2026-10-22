@@ -119,3 +119,14 @@ private let fiftyPercent: ProviderPolicy = {
     #expect(state.etag == nil && state.lastModified == nil)
     #expect(state.lastSuccessAt == Date(timeIntervalSince1970: 1))
 }
+
+@Test func hashFileDecidesTheDownload() {
+    let body = list(20)
+    let current = CompiledList(source: body)
+    #expect(ListUpdate.checkHash(sha(body) + "  list.txt\n", current: current) == .upToDate)
+    #expect(ListUpdate.checkHash(sha(body).uppercased(), current: current) == .upToDate)
+    #expect(ListUpdate.checkHash(sha(list(21)), current: current) == .download)
+    #expect(ListUpdate.checkHash(sha(body), current: nil) == .download)
+    #expect(ListUpdate.checkHash("<html>error</html>", current: current) == .badHashFile)
+    #expect(ListUpdate.checkHash("", current: nil) == .badHashFile)
+}

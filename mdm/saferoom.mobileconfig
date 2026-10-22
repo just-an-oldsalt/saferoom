@@ -81,7 +81,9 @@
 				<!-- The list. HTTPS only. -->
 				<key>ListURL</key>
 				<string>https://intel.example.com/saferoom/blocklist.txt</string>
-				<!-- Optional. A file with the list's SHA-256 in hex. -->
+				<!-- Optional. A file with the list's SHA-256 in hex. If set,
+				     SafeRoom downloads this small file at each check, and
+				     downloads the list only when the hash changed. -->
 				<key>ListSHA256URL</key>
 				<string>https://intel.example.com/saferoom/blocklist.txt.sha256</string>
 				<!-- Used when ListURL fails and no list is loaded yet. -->
@@ -94,8 +96,10 @@
 					<key>Token</key>
 					<string>REPLACE-WITH-A-READ-ONLY-TOKEN</string>
 				</dict>
+				<!-- Time between checks. The minimum is 300. With a hash file,
+				     a check costs one small download, so 300 is cheap. -->
 				<key>RefreshSeconds</key>
-				<integer>3600</integer>
+				<integer>300</integer>
 				<!-- 0 = off (the default). If you set it, a feed that changes size
 				     on purpose stops every Mac from updating until you raise it. -->
 				<key>MaxChangePercent</key>

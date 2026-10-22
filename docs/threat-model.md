@@ -50,7 +50,7 @@ A feed can be wrong by mistake, or an attacker can change it. A list that blocks
 - It can reject a list whose entry count changes by more than `MaxChangePercent`. The rule is off by default. A rejection stays until an administrator changes the profile, so a legitimate change to the feed would stop every Mac from updating.
 - It rejects an empty list as a replacement for a list with entries.
 - It ignores rules on a single label, like `*.com`, unless the policy sets `AllowTopLevelBlocks`. It rejects address ranges broader than IPv4 `/8` or IPv6 `/16`.
-- It rejects a list whose SHA-256 does not match `ListSHA256URL`. Host the hash file on a different system from the list. An attacker then needs to change both. SafeRoom sends no credentials to the hash file's host, so that file must be readable without them.
+- It rejects a list whose SHA-256 does not match `ListSHA256URL`. Host the hash file on a different system from the list. An attacker then needs to change both. SafeRoom sends no credentials to the hash file's host, so that file must be readable without them. SafeRoom downloads the list only when the hash file changes. An attacker who controls only the hash file can stop updates or cause rejections, but cannot install a list.
 - It keeps the last good list after any rejection.
 
 These rules do not stop a list that adds a few wrong names. The allowlist in the policy fixes such names at once, without a new list.

@@ -88,7 +88,9 @@ The cache file format allows up to 4 billion entries, so it is never the limit.
 
 ## Update cost
 
-For each refresh, SafeRoom sends a conditional request. If the list did not change, the server answers `304` with no body, and nothing else happens. If the downloaded list has the same SHA-256 as the list in use, SafeRoom also skips the compile.
+If the policy sets `ListSHA256URL`, each check downloads the hash file first. For the cookbook list, that file is 75 bytes. If the hash is the hash of the list in use, the check ends there. This makes a check every 5 minutes cheap for the Mac and for the server.
+
+Without a hash file, SafeRoom sends a conditional request for the list. If the list did not change, the server answers `304` with no body, and nothing else happens. If the downloaded list has the same SHA-256 as the list in use, SafeRoom also skips the compile.
 
 When the list changed, SafeRoom downloads it, compiles it, swaps it in, and writes a new cache file. For the 235,000-domain cookbook list, that is 1.7 MB on the wire and about 1 second of compile time on the test Mac.
 
@@ -101,4 +103,4 @@ When the list changed, SafeRoom downloads it, compiles it, swaps it in, and writ
 | Pending UDP queries per resolver | 8,192, for 10 seconds | Keeps most of the 16-bit ID space free, so a forged answer is unlikely to match. |
 | Names remembered by learned blocks | 10,000 for 5 minutes | Bounds memory under a flood of distinct names. |
 | Manual refreshes | One every 5 minutes | Any user can ask for a refresh. |
-| Shortest refresh interval | 5 minutes | Protects the list server. |
+| Shortest refresh interval | 5 minutes | Protects the list server. With a hash file, each check downloads only the hash file until the list changes. |

@@ -46,11 +46,11 @@ To change the policy, edit the profile in Jamf. The extension reads the policy a
 |---|---|---|---|
 | `ListURL` | string | none | HTTPS URL of the blocklist. When set, this URL is the main source. |
 | `ListPath` | string | `/Library/Application Support/SafeRoom/blocklist.txt` | Local blocklist. The path must be inside `/Library/Application Support/SafeRoom/`, which only root can write. Other paths are ignored. The file must be owned by root and must not be writable by group or others, or SafeRoom refuses it. The installer package creates the folder with the right owner. If `ListURL` is not set, SafeRoom reads this file. If the URL fails and no list is loaded yet, SafeRoom also reads it. |
-| `ListSHA256URL` | string | none | URL of a file with the list's SHA-256 hash in hex. If the hash does not match the download, SafeRoom rejects the download. |
+| `ListSHA256URL` | string | none | URL of a file with the list's SHA-256 hash in hex. If set, SafeRoom downloads this file first at each check, and downloads the list only when the hash is not the hash of the list in use. If the hash does not match the download, SafeRoom rejects the download. |
 | `Auth` | dictionary | none | How to authenticate to `ListURL`. See the next section. |
 | `AllowList` | array of strings | empty | Domains that SafeRoom never blocks. The forms are the same as in the blocklist. |
 | `NeverBlockHosts` | array of strings | empty | More domains that SafeRoom never blocks, added to the built-in set. Put your MDM server here. |
-| `RefreshSeconds` | integer | 3600 | Time between downloads. The minimum is 300. |
+| `RefreshSeconds` | integer | 3600 | Time between checks. The minimum is 300. With `ListSHA256URL`, a check of an unchanged list downloads only the hash file, so 300 is a good value. |
 | `MaxChangePercent` | integer | 0 | If the entry count of a new list changes by more than this percentage, SafeRoom rejects it. 0, the default, turns the rule off. Read the warning in the update section before you turn it on. |
 | `MaxListMegabytes` | integer | 64 | SafeRoom rejects a download larger than this. |
 | `AllowTopLevelBlocks` | boolean | false | Lets list rules like `*.zip` block a whole top-level domain. Off by default, so a bad feed cannot block `*.com`. |
@@ -73,10 +73,15 @@ SafeRoom follows a redirect only to the same host over the same scheme. It never
 ## How SafeRoom updates the list
 
 1. At start, SafeRoom loads its compiled cache. Blocking starts within a few milliseconds.
-2. SafeRoom downloads `ListURL`. If a list is loaded, the request carries `If-None-Match` and `If-Modified-Since`, and an unchanged list costs a `304` reply.
-3. SafeRoom applies these rules to a new list, in this order: HTTP status 200, size limit, SHA-256 match, not empty, and the `MaxChangePercent` limit.
-4. If the list passes, SafeRoom installs it and writes a new cache. If it fails, SafeRoom keeps the current list and logs the reason.
-5. After a success, SafeRoom waits `RefreshSeconds`. After a failure, it retries after 1 minute, then 2, 4, 8, and so on, up to `RefreshSeconds`.
+2. If `ListSHA256URL` is set, SafeRoom downloads the hash file. If the hash is the hash of the list in use, the check ends here as a success, with no list download.
+3. SafeRoom downloads `ListURL`. If a list is loaded and no hash file is set, the request carries `If-None-Match` and `If-Modified-Since`, and an unchanged list costs a `304` reply.
+4. SafeRoom applies these rules to a new list, in this order: HTTP status 200, size limit, SHA-256 match, not empty, and the `MaxChangePercent` limit.
+5. If the list passes, SafeRoom installs it and writes a new cache. If it fails, SafeRoom keeps the current list and logs the reason.
+6. After a success, SafeRoom waits `RefreshSeconds`. After a failure, it retries after 1 minute, then 2, 4, 8, and so on, up to `RefreshSeconds`.
+
+With `RefreshSeconds` at 300, `STALE` starts after 15 minutes with no successful check, for example on a Mac with no network.
+
+A server can publish the hash file and the list a few minutes apart, for example because a CDN caches each file for 5 minutes. During that time the downloaded list does not match the new hash. SafeRoom rejects it, keeps the current list, reports `DEGRADED`, and tries again after 1 minute.
 
 The percentage rule is off by default. If you turn it on, a rejection does not clear by itself. When the feed changes size on purpose, for example because a source was added, every Mac keeps the old list until you raise `MaxChangePercent` in the profile. The rule skips lists with fewer than 100 entries.
 
