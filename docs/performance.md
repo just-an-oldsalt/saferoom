@@ -35,7 +35,17 @@ On a client socket that is already open, SafeRoom adds no measurable time: the m
 
 In 0.1.2, the cost was in connection setup. SafeRoom handled each client socket as one flow, and opened a new connection to the resolver for each flow. That took about 1.5 ms. An app that opened a new socket for each lookup paid this each time.
 
-From 0.1.3, all UDP flows share one connection per resolver. Each forwarded query gets a new random ID, and SafeRoom matches the answer to its flow by the ID and the question. A connection with no traffic for 60 seconds closes. The table above shows 0.1.2. The numbers for 0.1.3 are not measured yet.
+From 0.1.3, all UDP flows share one connection per resolver. Each forwarded query gets a new random ID, and SafeRoom matches the answer to its flow by the ID and the question. A connection with no traffic for 60 seconds closes.
+
+A UDP connection keeps the network interface that it started on. From 0.1.4, SafeRoom replaces the shared connections in three cases:
+
+1. The network path changes, for example when a VPN or Wi-Fi connects or disconnects. SafeRoom closes every shared connection. Queries in flight get no answer, and the client sends them again.
+2. The system reports that a connection is not usable or has a better path.
+3. A connection is 30 seconds old. New queries go to a new connection, and the old one closes after it delivers its pending answers.
+
+The third case covers a VPN client that installs its route a moment after the network change. Without it, a connection opened in that moment stays on the wrong interface. Each replacement costs one new connection per resolver, which is small.
+
+The table above shows 0.1.2. The numbers for 0.1.3 are not measured yet.
 
 A blocked name never reaches the network. SafeRoom answers in 0.07 ms at the median.
 
@@ -87,6 +97,7 @@ When the list changed, SafeRoom downloads it, compiles it, swaps it in, and writ
 | Limit | Value | Why |
 |---|---|---|
 | Shared UDP connections to resolvers | 32 | A Mac uses a few resolvers. When the cap is reached, the connection used least recently closes. |
+| Age of a shared UDP connection | 30 seconds | A connection keeps its interface. A new one picks up route changes, for example from a VPN client. |
 | Pending UDP queries per resolver | 8,192, for 10 seconds | Keeps most of the 16-bit ID space free, so a forged answer is unlikely to match. |
 | Names remembered by learned blocks | 10,000 for 5 minutes | Bounds memory under a flood of distinct names. |
 | Manual refreshes | One every 5 minutes | Any user can ask for a refresh. |

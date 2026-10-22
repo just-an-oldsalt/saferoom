@@ -26,7 +26,7 @@ Each block goes to the unified log with the name, the rule, and the signing ID o
 | A connection to an IP address | No DNS lookup happens. | Use a firewall or an EDR network control for address blocks. |
 | An entry in `/etc/hosts` | The system resolver answers from the file without DNS. | Only an administrator can edit the file. Monitor it with your EDR. |
 | Another encrypted DNS profile | A `com.apple.dnsSettings.managed` profile from another tool sends system lookups encrypted. | Do not deploy both. |
-| A VPN client with its own DNS | Behavior depends on the client. | Test SafeRoom with each VPN client you deploy. |
+| A VPN client with its own DNS | Behavior depends on the client. SafeRoom replaces its resolver connections when the network path changes and every 30 seconds, so it follows the VPN's routes after a reconnect. 0.1.3 did not, and could ask a VPN resolver over the wrong interface until the extension restarted. | Test SafeRoom with each VPN client you deploy. Test a VPN disconnect and reconnect. |
 | The first lookup of a host listed only by IPv4 address | The system asks for A and AAAA at the same time, and the AAAA answer has no listed address. | List the domain, or list both address families. |
 
 ## Failure modes of SafeRoom
