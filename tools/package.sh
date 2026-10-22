@@ -4,8 +4,10 @@
 #
 #   tools/package.sh
 #
-# The package installs SafeRoom.app in /Applications. Its post-install script
-# runs `SafeRoom --activate`, which submits the system extension. With the MDM
+# The package installs SafeRoom.app in /Applications. Its pre-install script
+# closes an open SafeRoom window, and its post-install script runs
+# `SafeRoom --activate`, which submits the system extension, then opens the
+# window again if it was open. With the MDM
 # profile (mdm/saferoom.mobileconfig) installed first, macOS approves the
 # extension with no prompt.
 #
@@ -34,6 +36,36 @@ WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/root/Applications" "$WORK/scripts"
 ditto "$APP" "$WORK/root/Applications/SafeRoom.app"
+
+cat > "$WORK/scripts/preinstall" <<'PRE'
+#!/bin/sh
+# Close the SafeRoom window before the bundle is replaced. A window left
+# running from a replaced bundle loses its resources and code mid-run and
+# shows a broken state. postinstall opens it again for the same user.
+#
+# Only the window is closed: command-line runs (--status, --jamf, and so on)
+# are short and keep running. The extension is a separate process that
+# macOS replaces on activation.
+PATH=/usr/bin:/bin:/usr/sbin:/sbin
+EXE=/Applications/SafeRoom.app/Contents/MacOS/SafeRoom
+# Root-owned folder, so no other user can create or redirect the marker.
+MARK=/var/run/__APP_ID__.reopen
+/bin/rm -f "$MARK"
+PIDS=$(/bin/ps -axo pid=,args= | /usr/bin/awk -v exe="$EXE" '$2 == exe && $3 !~ /^--/ { print $1 }')
+[ -z "$PIDS" ] && exit 0
+: > "$MARK"
+/bin/kill $PIDS 2>/dev/null
+for _ in 1 2 3 4 5; do
+    /bin/kill -0 $PIDS 2>/dev/null || break
+    /bin/sleep 1
+done
+/bin/kill -9 $PIDS 2>/dev/null
+echo "SafeRoom preinstall: closed the window ($PIDS)"
+exit 0
+PRE
+render "$WORK/scripts/preinstall" "$WORK/scripts/preinstall.rendered"
+mv "$WORK/scripts/preinstall.rendered" "$WORK/scripts/preinstall"
+chmod +x "$WORK/scripts/preinstall"
 
 cat > "$WORK/scripts/postinstall" <<'POST'
 #!/bin/sh
@@ -65,10 +97,16 @@ USER_NAME=$(/usr/bin/stat -f %Su /dev/console)
 if [ -n "$USER_NAME" ] && [ "$USER_NAME" != "root" ] && [ "$USER_NAME" != "loginwindow" ]; then
     USER_ID=$(/usr/bin/id -u "$USER_NAME")
     /bin/launchctl asuser "$USER_ID" /usr/bin/sudo -u "$USER_NAME" "$APP" --activate
+    echo "SafeRoom postinstall: --activate exited $?"
+    # preinstall closed an open window: open the new one.
+    if [ -f "/var/run/__APP_ID__.reopen" ]; then
+        /bin/launchctl asuser "$USER_ID" /usr/bin/sudo -u "$USER_NAME" /usr/bin/open -a "$BUNDLE"
+    fi
 else
     "$APP" --activate
+    echo "SafeRoom postinstall: --activate exited $?"
 fi
-echo "SafeRoom postinstall: --activate exited $?"
+/bin/rm -f "/var/run/__APP_ID__.reopen"
 exit 0
 POST
 render "$WORK/scripts/postinstall" "$WORK/scripts/postinstall.rendered"

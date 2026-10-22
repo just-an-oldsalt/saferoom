@@ -34,7 +34,7 @@ Before the first fleet rollout, install the package on one test Mac with `sudo i
 5. Add the rendered `jamf-extension-attribute.sh` as an extension attribute. See "Status and Jamf inventory" below.
 6. On a test Mac, run `sudo /Applications/SafeRoom.app/Contents/MacOS/SafeRoom --status`. The JSON shows the list and the policy in use.
 
-To update SafeRoom, upload the new package and install it with a policy. macOS replaces the running extension. The cached list keeps blocking during the switch.
+To update SafeRoom, upload the new package and install it with a policy. macOS replaces the running extension. The cached list keeps blocking during the switch. If the SafeRoom window is open, the installer closes it before it replaces the app, and opens it again after.
 
 To roll back, remove the profile from the scope. This deactivates the extension, and a restart of the Mac removes it. Then remove `/Applications/SafeRoom.app` with a script.
 
