@@ -36,7 +36,8 @@ SafeRoom fails open. If it has no list, or if it cannot read a packet, it lets t
 | Event | Result | Detection |
 |---|---|---|
 | No list was ever loaded | Every lookup passes. | Jamf extension attribute: `NO LIST`. |
-| Downloads fail | The last good list stays in use. | `DEGRADED`, then `STALE` after three refresh intervals. |
+| Downloads fail | The last good list stays in use. | `DEGRADED`, then `STALE` after three refresh intervals. At a `RefreshSeconds` of 300, that is 15 minutes. |
+| The hash file changes a few minutes before the list, for example because of CDN caching | SafeRoom rejects the old list for the new hash and keeps the current list. It retries after 1 minute. | A short `DEGRADED` period after each new list. |
 | The extension crashes | macOS restarts it. Lookups in the gap fail, and blocking starts again from the cache in milliseconds. | `provider` log category: a new `startProxy`. |
 | An administrator stops or removes the extension | The profile marks the extension as not removable, but root can still stop the process. macOS restarts it. | `NOT RUNNING`, or a new `startProxy` in the log. |
 | An administrator replaces the app with a program that reports `OK` to Jamf | The Jamf script checks the code signature of the app before it runs it. | Jamf: `TAMPERED`. |

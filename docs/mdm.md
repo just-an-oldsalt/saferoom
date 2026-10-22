@@ -70,6 +70,8 @@ Any local user can read the token, because macOS stores the proxy configuration 
 
 SafeRoom follows a redirect only to the same host over the same scheme. It never sends the token to another host.
 
+SafeRoom also sends the token with the hash file download if the hash file is on the same host and port as `ListURL`. With `ListSHA256URL` set and `RefreshSeconds` at 300, the token goes to the server every 5 minutes instead of once an hour. Server logs that record the `Authorization` header then hold more copies of it.
+
 ## How SafeRoom updates the list
 
 1. At start, SafeRoom loads its compiled cache. Blocking starts within a few milliseconds.
@@ -108,7 +110,7 @@ To report SafeRoom health in Jamf inventory, add the rendered copy of [`mdm/jamf
 | State | Meaning |
 |---|---|
 | `OK` | A list is loaded, and the last check succeeded. |
-| `DEGRADED` | Recent checks failed. The list in use is not stale yet. |
+| `DEGRADED` | Recent checks failed. The list in use is not stale yet. With a hash file, a short `DEGRADED` period after a new list is published is normal. See [How SafeRoom updates the list](#how-saferoom-updates-the-list). |
 | `STALE` | No check succeeded for three refresh intervals. |
 | `NO LIST` | No list is loaded. Every query passes. |
 | `NOT RUNNING` | The extension or the proxy does not answer. |
