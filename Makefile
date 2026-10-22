@@ -1,6 +1,6 @@
 # SafeRoom. The .xcodeproj is generated from project.yml and not committed,
 # so `make open` is the way in.
-.PHONY: open project test app release package bench clean
+.PHONY: open project test app release package icon bench clean
 
 ## Generate the project and open it.
 open: project
@@ -38,6 +38,10 @@ package:
 
 ## The scale benchmark behind docs/performance.md: one process per size.
 BENCH_SIZES ?= 250000:1692 1000000:1692 3000000:1692 5000000:1692 250000:100000 250000:1000000
+
+## Redraw the app icon from tools/make-icon.swift.
+icon:
+	tools/icon.sh
 
 bench:
 	swift build -c release --package-path Benchmarks --scratch-path "$(HOME)/Library/Caches/saferoom/bench"

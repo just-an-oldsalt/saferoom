@@ -34,7 +34,7 @@ targets:
   SafeRoom:
     type: application
     platform: macOS
-    sources: [App/Sources]
+    sources: [App/Sources, App/Assets.xcassets]
     dependencies:
       # Embedding a system-extension target puts it in
       # Contents/Library/SystemExtensions, which is the only place
@@ -50,6 +50,7 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: SafeRoom
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.utilities
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_ENTITLEMENTS: App/Resources/SafeRoom.entitlements
       # Dev controls (proxy buttons, -TestPolicy) are in Debug builds, and in
       # a release only with `make release DEV_CONTROLS=1`.
