@@ -19,6 +19,7 @@ struct SafeRoomApp: App {
                 .task { await monitor.poll() }
         }
         .windowResizability(.contentSize)
+        .windowToolbarStyle(.unifiedCompact(showsTitle: false))
     }
 }
 
@@ -29,8 +30,19 @@ final class StatusMonitor {
     private(set) var status: ExtensionStatus?
     private(set) var problem: String? = "Connecting to the extension"
     private(set) var refreshing = false
+    private(set) var updatedAt: Date?
 
     func poll() async {
+        #if DEBUG
+        // Debug builds: `-SampleStatus YES` shows made-up data, for
+        // screenshots and UI work without a running extension.
+        if UserDefaults.standard.bool(forKey: "SampleStatus") {
+            status = Self.sample
+            problem = nil
+            updatedAt = Date()
+            return
+        }
+        #endif
         while !Task.isCancelled {
             if !refreshing { apply(await ControlClient.fetch(refresh: false)) }
             try? await Task.sleep(for: .seconds(5))
@@ -48,6 +60,7 @@ final class StatusMonitor {
         case .success(let s?):
             status = s
             problem = nil
+            updatedAt = Date()
         case .success(nil):
             status = nil
             problem = "The extension is running, but the DNS proxy is not started."
@@ -56,83 +69,24 @@ final class StatusMonitor {
             problem = "The extension does not answer: \(error.localizedDescription)"
         }
     }
-}
 
-struct StatusView: View {
-    let activator: ExtensionActivator
-    let proxy: ProxyConfigurator
-    let monitor: StatusMonitor
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("SafeRoom").font(.largeTitle.bold())
-
-            GroupBox("Setup") {
-                VStack(alignment: .leading, spacing: 6) {
-                    LabeledContent("Extension", value: activator.state)
-                    LabeledContent("DNS proxy", value: proxy.state)
-                    // Development builds only (make release DEV_CONTROLS=1).
-                    // In a fleet build, MDM alone turns the proxy on and off;
-                    // a user cannot disable it from this window.
-                    #if SAFEROOM_DEV_CONTROLS
-                    HStack {
-                        Button("Activate extension") { activator.activate() }
-                        Button("Enable DNS proxy") { proxy.setEnabled(true) }
-                        Button("Disable") { proxy.setEnabled(false) }
-                    }
-                    Text("Development build. Under MDM, the profile enables the proxy.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    #endif
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            GroupBox("Status") {
-                VStack(alignment: .leading, spacing: 6) {
-                    if let s = monitor.status {
-                        StatusDetails(status: s)
-                    } else {
-                        Text(monitor.problem ?? "").foregroundStyle(.secondary)
-                    }
-                    Button(monitor.refreshing ? "Refreshing..." : "Refresh list now") {
-                        Task { await monitor.refreshNow() }
-                    }
-                    .disabled(monitor.refreshing || monitor.status == nil)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        .padding(24)
-        .frame(minWidth: 520)
+    #if DEBUG
+    static var sample: ExtensionStatus? {
+        let now = Date()
+        func t(_ offset: TimeInterval) -> String { (now + offset).ISO8601Format() }
+        let json = """
+        {"version": "0.1.3 (18)", "startedAt": "\(t(-86_000))", "consecutiveFailures": 0,
+         "lastSuccessAt": "\(t(-1_260))", "nextRefreshAt": "\(t(2_340))",
+         "lastAttempt": {"at": "\(t(-1_260))", "source": "https://cookbook.oldsalt.zone/saferoom.txt", "result": "unchanged"},
+         "counters": {"queries": 48213, "blockedQueries": 312, "blockedAnswers": 9, "learnedBlocks": 4},
+         "list": {"source": "https://cookbook.oldsalt.zone/saferoom.txt", "loadedAt": "\(t(-86_000))",
+                  "domainRules": 234910, "v4Ranges": 1451, "v6Ranges": 241, "invalidLines": 0,
+                  "memoryBytes": 2252800, "sha256Prefix": "9f2c41d07ab3e815"},
+         "policy": {"listURL": "https://cookbook.oldsalt.zone/saferoom.txt", "listPath": "/Library/Application Support/SafeRoom/blocklist.txt",
+                    "sha256Check": true, "auth": "bearer", "refreshSeconds": 3600, "maxChangePercent": 0,
+                    "allowListCount": 3, "neverBlockHostCount": 2}}
+        """
+        return try? ExtensionStatus.decoder.decode(ExtensionStatus.self, from: Data(json.utf8))
     }
-}
-
-struct StatusDetails: View {
-    let status: ExtensionStatus
-
-    var body: some View {
-        let health = status.health()
-        Text(health.rawValue)
-            .font(.headline)
-            .foregroundStyle(health == .ok ? .green : health == .degraded ? .orange : .red)
-        if let list = status.list {
-            LabeledContent("List", value: "\(list.domainRules) domains, \(list.v4Ranges + list.v6Ranges) ranges, \(list.memoryBytes / 1024) KiB")
-            LabeledContent("Source", value: list.source)
-            LabeledContent("Loaded", value: list.loadedAt.formatted(date: .abbreviated, time: .standard))
-            if list.invalidLines > 0 { LabeledContent("Invalid lines", value: "\(list.invalidLines)") }
-        }
-        if let at = status.lastSuccessAt {
-            LabeledContent("Last check", value: at.formatted(date: .abbreviated, time: .standard))
-        }
-        if let a = status.lastAttempt, a.result == .rejected || a.result == .failed {
-            LabeledContent("Last problem", value: "\(a.result.rawValue): \(a.detail ?? "")")
-                .foregroundStyle(.orange)
-        }
-        if let next = status.nextRefreshAt {
-            LabeledContent("Next refresh", value: next.formatted(date: .omitted, time: .standard))
-        }
-        LabeledContent("Blocked", value: "\(status.counters.blockedQueries) queries, \(status.counters.blockedAnswers) answers of \(status.counters.queries)")
-        LabeledContent("Policy", value: status.policy.listURL ?? status.policy.listPath)
-        LabeledContent("Version", value: status.version)
-    }
+    #endif
 }

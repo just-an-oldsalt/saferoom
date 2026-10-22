@@ -1,3 +1,5 @@
+<img src="docs/images/icon.png" width="96" alt="SafeRoom icon">
+
 # SafeRoom
 
 SafeRoom is a macOS system extension that blocks DNS lookups for domains on a threat intelligence list. It answers NXDOMAIN (the DNS "this name does not exist" reply) for each listed domain. All other queries go to the resolver that the Mac already uses.
@@ -12,7 +14,11 @@ The name comes from Dungeon Crawler Carl. In the dungeon, a safe room is the one
 
 This project is in early development. The proxy blocks domains and address ranges, over UDP and TCP, and it logs each block with the app that asked. It downloads its list from an HTTPS URL with a bearer token, rejects suspect lists, and keeps the last good list on any failure. On a test Mac, a list of 250,000 domains uses 2.2 MB of memory, and a lookup takes about 140 nanoseconds.
 
-The app shows the extension's status, and `SafeRoom --jamf` reports health to Jamf inventory. Sample MDM profiles and a signed installer package are ready. Deployment through Jamf Pro and the client certificate download are not tested yet. The client certificate (mTLS) download is built but not tested.
+The app window shows the extension's health, the list in use, and the policy, and `SafeRoom --jamf` reports health to Jamf inventory. Sample MDM profiles and a signed installer package are ready. Deployment through Jamf Pro and the client certificate download are not tested yet. The client certificate (mTLS) download is built but not tested.
+
+<img src="docs/images/status.png" width="460" alt="The SafeRoom window: health, list, and policy">
+
+The screenshot shows sample data (`-SampleStatus YES`, Debug builds only).
 
 ## Documentation
 
