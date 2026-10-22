@@ -2,28 +2,41 @@
 
 An MDM configures SafeRoom with the DNS Proxy payload (`com.apple.dnsProxy.managed`). The payload's `ProviderConfiguration` dictionary holds the SafeRoom policy. This page lists every key.
 
-SafeRoom ignores keys that it does not know. If a value has the wrong type or an invalid form, SafeRoom uses the default value for that key. A typing error in a profile never stops the proxy.
+SafeRoom ignores keys that it does not know. If a value has the wrong type or an invalid form, SafeRoom uses the default value for that key, and logs the value and the reason in the `provider` category. A typing error in a profile never stops the proxy.
 
 ## Deploy with Jamf Pro
 
 You need three files from this repository:
 
 - `SafeRoom-<version>.pkg`, built with `make release package`. Do not set `DEV_CONTROLS=1` for a fleet build (see the threat model).
-- `mdm/saferoom.mobileconfig`, which approves the extension and holds the policy.
-- `mdm/saferoom-bypass-controls.mobileconfig`, which turns off browser DNS over HTTPS and iCloud Private Relay.
+- `saferoom.mobileconfig`, which approves the extension and holds the policy.
+- `saferoom-bypass-controls.mobileconfig`, which turns off browser DNS over HTTPS and iCloud Private Relay.
+- `jamf-extension-attribute.sh`, which reports SafeRoom health to Jamf inventory.
 
-Do the steps in this order. If the package installs before the profile, macOS asks the user to approve the extension.
+Take the profiles and the script from the `mdm/` folder next to the package in the release folder (`~/Library/Caches/saferoom/release/mdm/`). `make package` fills in the team ID, the bundle IDs, and the code signature requirements there. The copies in this repository hold placeholders. A profile from the repository does not install, and the repository copy of the extension attribute reports `TAMPERED` on every Mac.
+
+The DNS Proxy payload must have the `ProviderDesignatedRequirement` key. Its value is the code signature requirement of the extension, not of the app. Without it, the proxy never starts, and `nesessionmanager` logs "missing designated requirement". A restart does not fix this. Apple's [schema for the payload](https://github.com/apple/device-management/blob/release/mdm/profiles/com.apple.dnsProxy.managed.yaml) lists the key, but Apple's web page for the payload does not. `make package` writes the key and makes sure that it matches the extension in the package. If you write the profile yourself, get the value with this command:
+
+```sh
+codesign -d -r- /Applications/SafeRoom.app/Contents/Library/SystemExtensions/*.systemextension
+```
+
+Remove the `designated =>` prefix, and write `exists` where the output shows the comment `/* exists */`.
+
+Do the steps in this order. With the profile installed first, macOS approves the extension with no prompt. A test Mac that got the package first and the profile after it also worked: the extension waited for approval, and the profile approved it. The profile-first order is not tested on a managed Mac yet.
 
 Before the first fleet rollout, install the package on one test Mac with `sudo installer -pkg SafeRoom-<version>.pkg -target /`, with a user logged in. Then run `SafeRoom --status`. The post-install script submits the extension as the logged-in user. This step is not tested yet.
 
-1. Edit `ProviderConfiguration` in `mdm/saferoom.mobileconfig` for your environment. The keys are in the next section.
+1. Edit `ProviderConfiguration` in the rendered `saferoom.mobileconfig` for your environment. The keys are in the next section. `make package` shows a warning while the profile holds the sample values (`example.com`, `REPLACE-WITH`, `yourcompany`).
 2. In Jamf Pro, upload both profiles under Computers > Configuration Profiles. Scope them to a test group first.
 3. Upload the package under Settings > Computer management > Packages.
 4. Create a policy that installs the package, with the same scope. The package's post-install script runs `SafeRoom --activate`, which submits the extension.
-5. Add `mdm/jamf-extension-attribute.sh` as an extension attribute. See "Status and Jamf inventory" below.
+5. Add the rendered `jamf-extension-attribute.sh` as an extension attribute. See "Status and Jamf inventory" below.
 6. On a test Mac, run `sudo /Applications/SafeRoom.app/Contents/MacOS/SafeRoom --status`. The JSON shows the list and the policy in use.
 
 To update SafeRoom, upload the new package and install it with a policy. macOS replaces the running extension. The cached list keeps blocking during the switch.
+
+To roll back, remove the profile from the scope. This deactivates the extension, and a restart of the Mac removes it. Then remove `/Applications/SafeRoom.app` with a script.
 
 To change the policy, edit the profile in Jamf. The extension reads the policy at each start of the proxy, so the change takes effect at the next start. A restart of the Mac starts the proxy again.
 
@@ -85,7 +98,7 @@ The SafeRoom app binary has three command-line modes. They work from Terminal an
 
 The binary is at `/Applications/SafeRoom.app/Contents/MacOS/SafeRoom`.
 
-To report SafeRoom health in Jamf inventory, add [`mdm/jamf-extension-attribute.sh`](../mdm/jamf-extension-attribute.sh) as an extension attribute with the data type String. The result starts with one of these states:
+To report SafeRoom health in Jamf inventory, add the rendered copy of [`mdm/jamf-extension-attribute.sh`](../mdm/jamf-extension-attribute.sh) as an extension attribute with the data type String. The result starts with one of these states:
 
 | State | Meaning |
 |---|---|
@@ -111,7 +124,7 @@ log stream --predicate 'subsystem == "com.oldsalt.saferoom"'
 
 | Category | Content |
 |---|---|
-| `provider` | Start, stop, and the policy in use. The token is never logged. |
+| `provider` | Start, stop, and the policy in use. Each policy value that SafeRoom ignores, with the reason. The token and the URLs of ignored values are never logged. |
 | `list` | Downloads, rejections with the reason, and invalid lines. |
 | `block` | Each blocked query or answer, with the rule and the app that asked. |
 | `flow` | Connection errors. |

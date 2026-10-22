@@ -31,11 +31,13 @@ requirement_for() {
     printf '%s' "anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = \"$TEAM_ID\" and identifier \"$1\""
 }
 
-# Copies a file with __TEAM_ID__, __APP_ID__, __EXT_ID__ and __REQUIREMENT__
-# filled in.
+# Copies a file with __TEAM_ID__, __APP_ID__, __EXT_ID__, __REQUIREMENT__
+# (the app's) and __EXT_REQUIREMENT__ (the extension's) filled in.
 render() {
-    local requirement
+    local requirement ext_requirement
     requirement=$(requirement_for "$APP_ID" | sed 's/[&|\\]/\\&/g')
+    ext_requirement=$(requirement_for "$EXT_ID" | sed 's/[&|\\]/\\&/g')
     sed -e "s|__TEAM_ID__|$TEAM_ID|g" -e "s|__APP_ID__|$APP_ID|g" -e "s|__EXT_ID__|$EXT_ID|g" \
+        -e "s|__EXT_REQUIREMENT__|$ext_requirement|g" \
         -e "s|__REQUIREMENT__|$requirement|g" "$1" > "$2"
 }

@@ -86,3 +86,18 @@ func listPathOutsideFolderIgnored(_ path: String) {
     store.replace(Blocklist(list: CompiledList(source: Array("evil.com".utf8))))
     #expect(store.current.verdict(for: "evil.com") == .blocked(rule: "evil.com"))
 }
+
+@Test func unusableValuesAreReported() {
+    let policy = ProviderPolicy([
+        "ListURL": "http://lists.example.com/l.txt?token=secret",
+        "ListPath": "/tmp/list.txt",
+        "AllowList": ["good.example", "host.example/", 7],
+        "NeverBlockHosts": "mdm.example",
+    ])
+    #expect(policy.allowList.map(\.name) == ["good.example"])
+    #expect(policy.ignored.count == 5)
+    #expect(policy.ignored.contains { $0.hasPrefix("AllowList entry \"host.example/\"") })
+    #expect(policy.ignored.contains("NeverBlockHosts: must be an array of strings"))
+    #expect(!policy.ignored.contains { $0.contains("secret") })
+    #expect(ProviderPolicy(["AllowList": ["a.example"]]).ignored.isEmpty)
+}

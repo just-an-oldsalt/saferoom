@@ -33,6 +33,9 @@ public struct ProviderPolicy: Sendable, Equatable {
     public var maxListBytes: Int = 64 << 20
     /// Lets list rules like `*.zip` block a whole top-level domain.
     public var allowTopLevelBlocks = false
+    /// Policy values that were present but unusable, with the reason, for
+    /// the log. Without this, a typo silently becomes a default.
+    public var ignored: [String] = []
 
     public static let minimumRefresh: Duration = .seconds(300)
 
@@ -48,14 +51,17 @@ public struct ProviderPolicy: Sendable, Equatable {
     public init() {}
 
     public init(_ config: [String: Any]) {
-        if let path = config["ListPath"] as? String, path.hasPrefix(Self.listFolder),
-           !path.split(separator: "/").contains("..") {
-            listPath = path
+        if let path = config["ListPath"] as? String {
+            if path.hasPrefix(Self.listFolder), !path.split(separator: "/").contains("..") {
+                listPath = path
+            } else {
+                ignored.append("ListPath \"\(path)\": must be inside \(Self.listFolder)")
+            }
         }
-        listURL = Self.url(config["ListURL"])
-        listSHA256URL = Self.url(config["ListSHA256URL"])
-        allowList = Self.rules(config["AllowList"])
-        neverBlockHosts = Self.rules(config["NeverBlockHosts"]).map(\.name)
+        listURL = url("ListURL", config)
+        listSHA256URL = url("ListSHA256URL", config)
+        allowList = rules("AllowList", config)
+        neverBlockHosts = rules("NeverBlockHosts", config).map(\.name)
         // Every number is clamped: an absurd profile value must not overflow
         // arithmetic and crash the extension on every refresh.
         if let seconds = Self.int(config["RefreshSeconds"]) {
@@ -110,9 +116,31 @@ public struct ProviderPolicy: Sendable, Equatable {
         }
     }
 
-    static func rules(_ value: Any?) -> [DomainRule] {
-        (value as? [Any] ?? []).compactMap { item in
-            (item as? String).flatMap { try? ListParser.parseDomain(Substring($0)).get() }
+    private mutating func url(_ key: String, _ config: [String: Any]) -> URL? {
+        guard let value = config[key] else { return nil }
+        if let url = Self.url(value) { return url }
+        // The value is not logged: a URL can carry a credential.
+        ignored.append("\(key): must be an https URL")
+        return nil
+    }
+
+    private mutating func rules(_ key: String, _ config: [String: Any]) -> [DomainRule] {
+        guard let value = config[key] else { return [] }
+        guard let items = value as? [Any] else {
+            ignored.append("\(key): must be an array of strings")
+            return []
+        }
+        return items.compactMap { item in
+            guard let text = item as? String else {
+                ignored.append("\(key) entry \"\(item)\": not a string")
+                return nil
+            }
+            switch ListParser.parseDomain(Substring(text)) {
+            case .success(let rule): return rule
+            case .failure(let error):
+                ignored.append("\(key) entry \"\(text)\": \(error.reason)")
+                return nil
+            }
         }
     }
 

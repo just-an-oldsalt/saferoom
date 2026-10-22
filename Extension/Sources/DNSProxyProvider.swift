@@ -33,6 +33,9 @@ final class DNSProxyProvider: NEDNSProxyProvider, NEAppProxyUDPFlowHandling, @un
         let policy = ProviderPolicy(options?["VendorData"] as? [String: Any] ?? [:])
         Log.provider.notice(
             "policy: listURL=\(policy.listURL.map(ExtensionStatus.PolicySummary.redacted) ?? "none", privacy: .public) listPath=\(policy.listPath, privacy: .public) sha256URL=\(policy.listSHA256URL != nil) auth=\(policy.auth.description, privacy: .public) refresh=\(policy.refreshInterval.components.seconds)s maxChange=\(policy.maxChangePercent)% allow=\(policy.allowList.count) neverBlockHosts=\(policy.neverBlockHosts.count)")
+        for problem in policy.ignored {
+            Log.provider.error("policy value ignored: \(Log.clean(problem), privacy: .public)")
+        }
         let loader = ListLoader(policy: policy, store: filter.store)
         self.loader.withLock { $0 = loader }
         Task { await loader.start() }

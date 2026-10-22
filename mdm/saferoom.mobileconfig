@@ -8,8 +8,9 @@
 
   Before you deploy:
   - Replace the ProviderConfiguration values with your own (docs/mdm.md).
-  - __TEAM_ID__, __APP_ID__ and __EXT_ID__ are filled in by tools/package.sh,
-    which writes ready copies to the release folder. Use those.
+  - __TEAM_ID__, __APP_ID__, __EXT_ID__ and __EXT_REQUIREMENT__ are filled in
+    by tools/package.sh, which writes ready copies to the release folder.
+    Use those.
   - Generate new PayloadUUID values (uuidgen) for your organization.
 
   The SafeRoom app must be in /Applications, and must launch once (for
@@ -70,6 +71,11 @@
 			<string>__APP_ID__</string>
 			<key>ProviderBundleIdentifier</key>
 			<string>__EXT_ID__</string>
+			<!-- Required in practice: without it, the proxy never starts
+			     ("missing designated requirement" in nesessionmanager). The
+			     extension's code signature requirement, not the app's. -->
+			<key>ProviderDesignatedRequirement</key>
+			<string>__EXT_REQUIREMENT__</string>
 			<key>ProviderConfiguration</key>
 			<dict>
 				<!-- The list. HTTPS only. -->

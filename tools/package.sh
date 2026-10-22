@@ -94,5 +94,23 @@ for f in saferoom.mobileconfig saferoom-bypass-controls.mobileconfig jamf-extens
     render "$HERE/mdm/$f" "$OUT/mdm/$f"
 done
 plutil -lint "$OUT/mdm/"*.mobileconfig >/dev/null
+
+# Every placeholder must be filled in.
+if grep -n '__[A-Z_]*__' "$OUT/mdm/"*; then
+    echo "error: unfilled placeholders in $OUT/mdm/" >&2; exit 1
+fi
+# The profile's ProviderDesignatedRequirement must match the extension that
+# ships in this package, or the proxy never starts on the fleet.
+EXT_REQ=$(plutil -extract PayloadContent.1.ProviderDesignatedRequirement raw "$OUT/mdm/saferoom.mobileconfig")
+EXT_BUNDLE="$APP/Contents/Library/SystemExtensions/$EXT_ID.systemextension"
+if ! codesign --verify -R="$EXT_REQ" "$EXT_BUNDLE"; then
+    echo "error: ProviderDesignatedRequirement does not match $EXT_BUNDLE" >&2; exit 1
+fi
+# The sample policy values must be replaced before the profile is uploaded.
+# Not fatal: many admins edit ProviderConfiguration in the MDM instead.
+if grep -nE 'example\.com|REPLACE-WITH|yourcompany|example-partner' "$OUT/mdm/saferoom.mobileconfig"; then
+    echo "WARNING: $OUT/mdm/saferoom.mobileconfig still holds the sample policy values above." >&2
+    echo "WARNING: Replace them, here or in your MDM, before you deploy it." >&2
+fi
 echo "Package: $PKG"
 echo "MDM files: $OUT/mdm/"

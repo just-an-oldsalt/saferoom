@@ -27,7 +27,9 @@ This page explains how to build, sign, and package SafeRoom with your own Apple 
    make release package
    ```
 
-The release folder is `~/Library/Caches/saferoom/release`. It holds the signed and notarized package. Its `mdm/` folder holds the two profiles and the Jamf extension attribute, with your team ID, bundle ID, and code signature requirement filled in. Upload those copies, not the files in this repository, which hold placeholders.
+The release folder is `~/Library/Caches/saferoom/release`. It holds the signed and notarized package. Its `mdm/` folder holds the two profiles and the Jamf extension attribute, with your team ID, bundle IDs, and code signature requirements filled in. Upload those copies, not the files in this repository, which hold placeholders.
+
+`make package` stops with an error if a rendered file still holds a placeholder, or if the profile's `ProviderDesignatedRequirement` does not match the extension in the package. It shows a warning if the profile still holds the sample policy values. You can replace those values in the profile or in your MDM.
 
 The release scripts find your certificates in the keychain by team ID, so no name or account is written in the repository.
 
