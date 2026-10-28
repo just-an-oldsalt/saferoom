@@ -2,26 +2,96 @@ import Foundation
 // NetworkExtension predates Sendable; its callbacks are safe to capture here.
 @preconcurrency import NetworkExtension
 import Observation
+import SafeRoomCore
 
-/// Turns the DNS proxy on from the app, for testing without MDM.
+/// The app's view of the DNS proxy configuration, and the user's way to set
+/// it on a Mac that no MDM manages.
 ///
-/// In production the MDM DNS Proxy payload does this, and a managed
-/// configuration replaces this one. macOS asks the user to allow it the
+/// Under MDM, the DNS Proxy payload sets the configuration and the window is
+/// read-only (`ConfigurationAccess`). Without MDM, the user picks a list in
+/// the app, and the app writes it here. macOS asks the user to allow it the
 /// first time ("SafeRoom would like to add proxy configurations").
 @Observable
 @MainActor
 final class ProxyConfigurator {
     private(set) var state = "Unknown"
+    private(set) var manager: ConfigurationAccess.Manager = .unknown
+    /// The settings in the app's configuration, when the app wrote it.
+    private(set) var settings: UserSettings?
+    private(set) var saving = false
 
     func refresh() {
         let manager = NEDNSProxyManager.shared()
         manager.loadFromPreferences { [self] error in
             let enabled = manager.isEnabled
-            let configured = manager.providerProtocol != nil
+            let config = manager.providerProtocol.map { $0.providerConfiguration ?? [:] }
+            let configured = config != nil
+            let byApp = config.map { ProviderPolicy($0).configuredByApp } ?? false
+            let settings = byApp ? config.map(UserSettings.init(configuration:)) : nil
             Task { @MainActor in
-                if let error { state = "Error: \(error.localizedDescription)"; return }
+                if let error {
+                    state = "Error: \(error.localizedDescription)"
+                    self.manager = .unknown
+                    return
+                }
                 state = !configured ? "Not configured" : enabled ? "Enabled" : "Configured, disabled"
+                self.manager = configured ? .configured(byApp: byApp, enabled: enabled) : .none
+                self.settings = settings
             }
+        }
+    }
+
+    /// Writes the user's settings and turns the proxy on or off. Returns an
+    /// error message, or nil on success. The caller checks
+    /// `ConfigurationAccess` first; this method checks again that the
+    /// configuration it replaces is the app's own.
+    func save(_ settings: UserSettings, enabled: Bool) async -> String? {
+        saving = true
+        defer { saving = false }
+        let error = await write(settings.configuration, enabled: enabled)
+        refresh()
+        return error
+    }
+
+    /// Turns the proxy on or off and keeps the settings.
+    func setUserEnabled(_ enabled: Bool) async -> String? {
+        await save(settings ?? UserSettings(), enabled: enabled)
+    }
+
+    private func write(_ configuration: [String: Any], enabled: Bool) async -> String? {
+        let manager = NEDNSProxyManager.shared()
+        if let error = await load(manager) { return error }
+        if let existing = manager.providerProtocol, !ProviderPolicy(existing.providerConfiguration ?? [:]).configuredByApp {
+            return "This Mac's DNS proxy is set by device management. SafeRoom cannot change it."
+        }
+        let wasEnabled = manager.isEnabled
+        let proto = manager.providerProtocol ?? NEDNSProxyProviderProtocol()
+        proto.providerBundleIdentifier = ExtensionActivator.extensionID
+        proto.providerConfiguration = configuration
+        manager.providerProtocol = proto
+        manager.localizedDescription = "SafeRoom"
+        // The provider reads its policy only when it starts. A running proxy
+        // is turned off and on again to restart it. Two saves in quick
+        // succession get merged into one update with no restart, so wait
+        // between them.
+        if wasEnabled, enabled {
+            manager.isEnabled = false
+            if let error = await save(manager) { return error }
+            try? await Task.sleep(for: .seconds(2))
+        }
+        manager.isEnabled = enabled
+        return await save(manager)
+    }
+
+    private func load(_ manager: NEDNSProxyManager) async -> String? {
+        await withCheckedContinuation { continuation in
+            manager.loadFromPreferences { error in continuation.resume(returning: error?.localizedDescription) }
+        }
+    }
+
+    private func save(_ manager: NEDNSProxyManager) async -> String? {
+        await withCheckedContinuation { continuation in
+            manager.saveToPreferences { error in continuation.resume(returning: error?.localizedDescription) }
         }
     }
 
@@ -42,9 +112,8 @@ final class ProxyConfigurator {
         guard UserDefaults.standard.dictionary(forKey: "TestPolicy") != nil else { return }
         let manager = NEDNSProxyManager.shared()
         manager.loadFromPreferences { [self] _ in
-            let policy = UserDefaults.standard.dictionary(forKey: "TestPolicy") ?? [:]
             guard let proto = manager.providerProtocol else { return }
-            proto.providerConfiguration = policy
+            proto.providerConfiguration = Self.testPolicy
             // The provider reads its policy only when it starts, so turn the
             // proxy off and on again to restart it.
             // Two saves in quick succession get merged into one configuration
@@ -63,13 +132,24 @@ final class ProxyConfigurator {
         }
     }
 
+    /// The `-TestPolicy` dictionary, marked as the app's own unless it says
+    /// otherwise, so a development Mac stays editable in the window. Pass
+    /// `ConfiguredBy = mdm;` to see the managed window.
+    nonisolated private static var testPolicy: [String: Any] {
+        var policy = UserDefaults.standard.dictionary(forKey: "TestPolicy") ?? [:]
+        if policy[ProviderPolicy.configuredByKey] == nil {
+            policy[ProviderPolicy.configuredByKey] = ProviderPolicy.configuredByApp
+        }
+        return policy
+    }
+
     func setEnabled(_ enabled: Bool) {
         let manager = NEDNSProxyManager.shared()
         manager.loadFromPreferences { [self] _ in
             if manager.providerProtocol == nil {
                 let proto = NEDNSProxyProviderProtocol()
                 proto.providerBundleIdentifier = ExtensionActivator.extensionID
-                proto.providerConfiguration = UserDefaults.standard.dictionary(forKey: "TestPolicy") ?? [:]
+                proto.providerConfiguration = Self.testPolicy
                 manager.providerProtocol = proto
                 manager.localizedDescription = "SafeRoom"
             }

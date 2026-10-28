@@ -3,21 +3,47 @@ import SafeRoomCore
 import SwiftUI
 
 /// The app window: the extension's health, the list in use, and the policy.
-/// Read-only in a fleet build. MDM alone turns the proxy on and off.
+/// Read-only on a Mac that MDM manages: MDM alone sets the policy and turns
+/// the proxy on and off. On any other Mac, the user picks the list here
+/// (`ConfigurationAccess`).
 struct StatusView: View {
     let activator: ExtensionActivator
     let proxy: ProxyConfigurator
     let monitor: StatusMonitor
+    @State private var editing = false
+    @State private var problem: String?
+
+    private var access: ConfigurationAccess {
+        #if DEBUG
+        // Debug builds: `-SampleAccess firstRun|on|off` shows that mode, for
+        // screenshots and UI work, with `-SampleStatus YES` for the last two.
+        switch UserDefaults.standard.string(forKey: "SampleAccess") {
+        case "firstRun": return .firstRun
+        case "on": return .user(enabled: true)
+        case "off": return .user(enabled: false)
+        default: break
+        }
+        #endif
+        // Until the extension answered once, its policy is unknown, and a
+        // managed Mac could look like a first run.
+        return ConfigurationAccess.decide(manager: monitor.answered ? proxy.manager : .unknown, running: monitor.status?.policy)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            Header(status: monitor.status, problem: monitor.problem)
+            Header(status: monitor.status, problem: monitor.problem, note: note)
             Divider()
             Form {
+                if access == .firstRun || access == .user(enabled: false) {
+                    SetupSection(firstRun: access == .firstRun, busy: proxy.saving, problem: problem,
+                                 turnOn: { turnOn() }, edit: { editing = true })
+                }
                 if let s = monitor.status {
                     Section { Metrics(status: s) }
                     ListSection(status: s)
-                    PolicySection(policy: s.policy)
+                    PolicySection(
+                        policy: s.policy, editable: access.canEdit, busy: proxy.saving, problem: problem,
+                        edit: { editing = true }, turnOff: { turnOff() })
                 }
                 SystemSection(activator: activator, proxy: proxy, status: monitor.status)
                 #if SAFEROOM_DEV_CONTROLS
@@ -31,6 +57,27 @@ struct StatusView: View {
         }
         .frame(width: 620, height: 760)
         .background(.background)
+        .sheet(isPresented: $editing) {
+            SourceEditor(initial: proxy.settings ?? UserSettings(), proxy: proxy) { editing = false }
+        }
+    }
+
+    private var note: String? {
+        switch access {
+        case .firstRun: "Choose a threat list below to turn on protection."
+        case .user(enabled: false): "Protection is off. Turn it on below."
+        case .user(enabled: true) where monitor.status == nil:
+            "Protection is on, but the system extension does not answer. Allow SafeRoom in System Settings > General > Login Items & Extensions."
+        default: nil
+        }
+    }
+
+    private func turnOn() {
+        Task { problem = await proxy.save(proxy.settings ?? UserSettings(), enabled: true) }
+    }
+
+    private func turnOff() {
+        Task { problem = await proxy.setUserEnabled(false) }
     }
 }
 
@@ -39,6 +86,8 @@ struct StatusView: View {
 private struct Header: View {
     let status: ExtensionStatus?
     let problem: String?
+    /// Replaces the problem text while the user has not turned SafeRoom on.
+    let note: String?
 
     var body: some View {
         VStack(spacing: 14) {
@@ -68,7 +117,7 @@ private struct Header: View {
     }
 
     private var detail: String {
-        guard let status else { return problem ?? "Connecting to the extension." }
+        guard let status else { return note ?? problem ?? "Connecting to the extension." }
         let list = status.list.map { "\($0.domainRules.formatted()) domains and \(($0.v4Ranges + $0.v6Ranges).formatted()) address ranges" }
         switch status.health() {
         case .ok:
@@ -233,6 +282,12 @@ private struct ListSection: View {
 
 private struct PolicySection: View {
     let policy: ExtensionStatus.PolicySummary
+    let editable: Bool
+    let busy: Bool
+    let problem: String?
+    let edit: () -> Void
+    let turnOff: () -> Void
+    @State private var confirmingOff = false
 
     var body: some View {
         Section {
@@ -243,11 +298,30 @@ private struct PolicySection: View {
             Row("Allow list", "\(policy.allowListCount) entries")
             Row("Never-block hosts", "\(policy.neverBlockHostCount) entries")
             if let eventURL = policy.eventURL { Row("Block events", eventURL, mono: true) }
+            if editable {
+                HStack {
+                    Button("Change list…", action: edit)
+                    Spacer()
+                    Button("Turn off protection", role: .destructive) { confirmingOff = true }
+                }
+                .disabled(busy)
+                .confirmationDialog("Turn off protection?", isPresented: $confirmingOff) {
+                    Button("Turn Off", role: .destructive, action: turnOff)
+                } message: {
+                    Text("SafeRoom stops blocking until you turn it on again.")
+                }
+                if let problem { Text(problem).font(.callout).foregroundStyle(.red) }
+            }
         } header: {
             Text("Policy")
         } footer: {
-            Label("Set by your organization through device management.", systemImage: "building.2")
-                .font(.caption).foregroundStyle(.secondary)
+            if editable {
+                Label("Set on this Mac. No device management controls SafeRoom here.", systemImage: "person.crop.circle")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                Label("Set by your organization through device management.", systemImage: "building.2")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
     }
 

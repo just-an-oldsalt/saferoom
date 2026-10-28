@@ -133,7 +133,7 @@ actor EventPoster {
     static func hostname() -> String? {
         var buffer = [CChar](repeating: 0, count: 256)
         guard gethostname(&buffer, buffer.count) == 0 else { return nil }
-        let name = String(cString: buffer)
+        let name = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
         return name.isEmpty ? nil : name
     }
 

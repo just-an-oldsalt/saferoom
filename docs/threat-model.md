@@ -88,9 +88,26 @@ The second review found a bypass. Before version 0.1.2, one answer record that t
 
 The extension also limits the work that hostile input can cause. A list line longer than 4,096 bytes is skipped unread. One client socket can open at most 8 upstream connections. A TCP connection reads more data only after it has passed on the last data. Names in the log have control characters escaped, so a name with a line break cannot forge a log line.
 
-## Development controls
+## Who can change the policy
 
-A development build of the app has buttons that turn the proxy on and off, and a `-TestPolicy` launch argument that replaces the policy. A fleet build has neither, so a user cannot turn the proxy off from the app. `make release` builds a fleet build. `make release DEV_CONTROLS=1` builds a development build. Never deploy a development build to a fleet.
+On a Mac that an MDM manages, the app window is read-only. A user cannot change the policy or turn the proxy off from the app.
+
+On a Mac with no MDM, the user can pick the list, set the options, and turn protection on and off in the app (see the README). The app writes this policy into the DNS proxy configuration with the key `ConfiguredBy` set to `app`. An MDM profile never has this key.
+
+The app lets the user edit only when it can tell that no MDM set the policy. Anything that it cannot tell counts as managed, and the window stays read-only. These are the rules:
+
+- If the extension answers, and the policy it runs does not have `ConfiguredBy = app`, the Mac is managed.
+- If the app cannot load the proxy configuration, or the extension has not answered yet, the Mac is managed.
+- If the configuration that the app loads does not have `ConfiguredBy = app`, the Mac is managed.
+- Before the app saves, it loads the configuration again, and it refuses to replace one that does not have `ConfiguredBy = app`.
+
+Never put `ConfiguredBy` in an MDM profile. With `ConfiguredBy = app`, the window offers the editor on a managed Mac.
+
+The behavior on a managed Mac whose app has not seen the MDM configuration yet is not tested. In this case, the extension does not answer, and the app sees no configuration. The window then offers the first-run setup. It is not known whether macOS then refuses the app's configuration or uses it next to the MDM configuration. Test this on a managed Mac before you deploy this version to a fleet.
+
+A token saved in the app has the same problem as a token in a profile: any local user can read it.
+
+A development build also has buttons that turn the proxy on and off on any Mac, and a `-TestPolicy` launch argument that replaces the policy. A fleet build has neither. `make release` builds a fleet build. `make release DEV_CONTROLS=1` builds a development build. Never deploy a development build to a fleet.
 
 ## Privacy
 

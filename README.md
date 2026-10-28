@@ -6,7 +6,7 @@ SafeRoom is a macOS system extension that blocks DNS lookups for domains on a th
 
 SafeRoom works well with lists of up to about 3 million domains. A test with 10 million domains also worked, but each update then needs 44 seconds and over 1 GB of memory while it compiles. The whole list stays in memory as a compact hash table. [docs/performance.md](docs/performance.md) has the measurements.
 
-An MDM (Jamf or any other) deploys and configures SafeRoom. The policy sets where the list comes from: an HTTPS URL or a local file.
+An MDM (Jamf or any other) can deploy and configure SafeRoom. The policy sets where the list comes from: an HTTPS URL or a local file. On a Mac with no MDM, you can set up SafeRoom in the app.
 
 The name comes from Dungeon Crawler Carl. In the dungeon, a safe room is the one place where nothing can attack you.
 
@@ -20,9 +20,18 @@ The app window shows the extension's health, the list in use, and the policy, an
 
 The screenshot shows sample data (`-SampleStatus YES`, Debug builds only).
 
+## Use SafeRoom without MDM
+
+1. Install the SafeRoom package. It puts the app in `/Applications`, where a system extension must be.
+2. Open SafeRoom. If macOS asks you to allow the system extension, open System Settings > General > Login Items & Extensions, and turn SafeRoom on.
+3. In the SafeRoom window, click "Use the free cookbook list". To use another list, click "Choose another list…".
+4. When macOS asks to add a proxy configuration, click Allow.
+
+To change the list or the update interval, click "Change list…" in the Policy section. If the list blocks a site that you need, add its domain under "Never block". On a Mac that an MDM manages, the window is read-only.
+
 ## Free threat list
 
-The [cookbook](https://cookbook.oldsalt.zone/) list is free for anyone to use with SafeRoom. It merges several open threat intelligence feeds into one list in the SafeRoom format, with about 235,000 domains and 1,700 address ranges. The list needs no token. Set these two keys in the MDM policy:
+The [cookbook](https://cookbook.oldsalt.zone/) list is free for anyone to use with SafeRoom. It merges several open threat intelligence feeds into one list in the SafeRoom format, with about 235,000 domains and 1,700 address ranges. The list needs no token. On a Mac with no MDM, the app offers it at the first start. Under MDM, set these two keys in the policy:
 
 ```xml
 <key>ListURL</key>

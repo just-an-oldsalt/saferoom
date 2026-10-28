@@ -2,6 +2,8 @@
 
 An MDM configures SafeRoom with the DNS Proxy payload (`com.apple.dnsProxy.managed`). The payload's `ProviderConfiguration` dictionary holds the SafeRoom policy. This page lists every key.
 
+Do not put the key `ConfiguredBy` in a profile. The SafeRoom app writes it when a user sets the policy on a Mac with no MDM, and the window uses it to decide whether the user can edit the policy.
+
 SafeRoom ignores keys that it does not know. If a value has the wrong type or an invalid form, SafeRoom uses the default value for that key, and logs the value and the reason in the `provider` category. A typing error in a profile never stops the proxy.
 
 ## Deploy with Jamf Pro

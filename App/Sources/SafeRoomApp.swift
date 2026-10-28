@@ -31,6 +31,9 @@ final class StatusMonitor {
     private(set) var problem: String? = "Connecting to the extension"
     private(set) var refreshing = false
     private(set) var updatedAt: Date?
+    /// True after the first answer or failure. Before it, the window cannot
+    /// tell a managed Mac from an unmanaged one.
+    private(set) var answered = false
 
     func poll() async {
         #if DEBUG
@@ -38,6 +41,7 @@ final class StatusMonitor {
         // screenshots and UI work without a running extension.
         if UserDefaults.standard.bool(forKey: "SampleStatus") {
             status = Self.sample
+            answered = true
             problem = nil
             updatedAt = Date()
             return
@@ -56,6 +60,7 @@ final class StatusMonitor {
     }
 
     private func apply(_ outcome: ControlClient.Outcome) {
+        answered = true
         switch outcome {
         case .success(let s?):
             status = s
@@ -75,7 +80,7 @@ final class StatusMonitor {
         let now = Date()
         func t(_ offset: TimeInterval) -> String { (now + offset).ISO8601Format() }
         let json = """
-        {"version": "0.1.3 (18)", "startedAt": "\(t(-86_000))", "consecutiveFailures": 0,
+        {"version": "0.1.4 (19)", "startedAt": "\(t(-86_000))", "consecutiveFailures": 0,
          "lastSuccessAt": "\(t(-1_260))", "nextRefreshAt": "\(t(2_340))",
          "lastAttempt": {"at": "\(t(-1_260))", "source": "https://cookbook.oldsalt.zone/list.txt", "result": "unchanged"},
          "counters": {"queries": 48213, "blockedQueries": 312, "blockedAnswers": 9, "learnedBlocks": 4},

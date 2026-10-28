@@ -42,11 +42,17 @@ public struct ProviderPolicy: Sendable, Equatable {
     /// Time between event posts. A post also goes out early when a full
     /// batch is waiting.
     public var eventInterval: Duration = .seconds(10)
+    /// True when the SafeRoom app wrote this policy (`ConfiguredBy = app`),
+    /// not an MDM profile. Only the app's window reads it, to decide whether
+    /// the user may edit the policy (`ConfigurationAccess`).
+    public var configuredByApp = false
     /// Policy values that were present but unusable, with the reason, for
     /// the log. Without this, a typo silently becomes a default.
     public var ignored: [String] = []
 
     public static let minimumRefresh: Duration = .seconds(300)
+    public static let configuredByKey = "ConfiguredBy"
+    public static let configuredByApp = "app"
 
     public enum Auth: Sendable, Equatable {
         case none
@@ -85,6 +91,7 @@ public struct ProviderPolicy: Sendable, Equatable {
         auth = Self.auth(config["Auth"])
         eventAuth = Self.auth(config["EventAuth"])
         allowTopLevelBlocks = config["AllowTopLevelBlocks"] as? Bool ?? false
+        configuredByApp = config[Self.configuredByKey] as? String == Self.configuredByApp
     }
 
     /// The never-block set: built-in names and NeverBlockHosts, each with

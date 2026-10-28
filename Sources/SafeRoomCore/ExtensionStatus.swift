@@ -50,6 +50,8 @@ public struct ExtensionStatus: Codable, Sendable, Equatable {
         /// Optional, so a status from an older extension still decodes.
         public var eventURL: String?
         public var eventAuth: String?
+        /// "app" when the SafeRoom app wrote the policy, nil for MDM.
+        public var configuredBy: String?
     }
 
     public struct ListSummary: Codable, Sendable, Equatable {
@@ -104,7 +106,8 @@ extension ExtensionStatus.PolicySummary {
             allowListCount: policy.allowList.count,
             neverBlockHostCount: policy.neverBlockHosts.count,
             eventURL: policy.eventURL.map(Self.redacted),
-            eventAuth: policy.eventURL != nil ? policy.eventAuth.description : nil)
+            eventAuth: policy.eventURL != nil ? policy.eventAuth.description : nil,
+            configuredBy: policy.configuredByApp ? ProviderPolicy.configuredByApp : nil)
     }
 
     public static func redacted(_ url: URL) -> String {
