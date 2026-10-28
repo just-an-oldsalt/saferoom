@@ -11,6 +11,7 @@ enum Log {
     static let list = Logger(subsystem: SafeRoom.logSubsystem, category: "list")
     static let flow = Logger(subsystem: SafeRoom.logSubsystem, category: "flow")
     static let block = Logger(subsystem: SafeRoom.logSubsystem, category: "block")
+    static let event = Logger(subsystem: SafeRoom.logSubsystem, category: "event")
 
     /// Text from the network or a list, made safe for a log line. A name
     /// with a newline in it could otherwise forge a second "blocked" line

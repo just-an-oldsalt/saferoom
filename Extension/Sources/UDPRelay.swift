@@ -17,6 +17,7 @@ import SafeRoomCore
 final class UDPRelay: @unchecked Sendable {
     private let flow: NEAppProxyUDPFlow
     private let filter: DNSFilter
+    private let events: EventBuffer
     private let app: String
     private let queue = DispatchQueue(label: "saferoom.udp")
     private var lastActivity = ContinuousClock.now
@@ -27,9 +28,10 @@ final class UDPRelay: @unchecked Sendable {
     /// opens a new flow.
     static let idleTimeout: Duration = .seconds(30)
 
-    init(flow: NEAppProxyUDPFlow, filter: DNSFilter) {
+    init(flow: NEAppProxyUDPFlow, filter: DNSFilter, events: EventBuffer) {
         self.flow = flow
         self.filter = filter
+        self.events = events
         self.app = flow.metaData.sourceAppSigningIdentifier
     }
 
@@ -64,6 +66,7 @@ final class UDPRelay: @unchecked Sendable {
         switch filter.decide(query: packet) {
         case .block(let reply, let name, let type, let rule):
             Log.blockedQuery(name: name, type: type, rule: rule, app: app, transport: "udp")
+            events.add(.init(query: name, type: type, rule: rule, app: app, transport: "udp"))
             writeToClient(reply, from: endpoint)
         case .forward:
             UpstreamPool.shared.send(packet, to: endpoint) { [self] response in
@@ -82,6 +85,7 @@ final class UDPRelay: @unchecked Sendable {
             writeToClient(packet, from: endpoint)
         case .block(let reply, let name, let reason):
             Log.blockedResponse(name: name, reason: reason, app: app, transport: "udp")
+            events.add(.init(answer: name, reason: reason, app: app, transport: "udp"))
             writeToClient(reply, from: endpoint)
         }
     }

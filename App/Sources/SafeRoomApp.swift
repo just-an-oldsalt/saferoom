@@ -77,12 +77,12 @@ final class StatusMonitor {
         let json = """
         {"version": "0.1.3 (18)", "startedAt": "\(t(-86_000))", "consecutiveFailures": 0,
          "lastSuccessAt": "\(t(-1_260))", "nextRefreshAt": "\(t(2_340))",
-         "lastAttempt": {"at": "\(t(-1_260))", "source": "https://cookbook.oldsalt.zone/saferoom.txt", "result": "unchanged"},
+         "lastAttempt": {"at": "\(t(-1_260))", "source": "https://cookbook.oldsalt.zone/list.txt", "result": "unchanged"},
          "counters": {"queries": 48213, "blockedQueries": 312, "blockedAnswers": 9, "learnedBlocks": 4},
-         "list": {"source": "https://cookbook.oldsalt.zone/saferoom.txt", "loadedAt": "\(t(-86_000))",
+         "list": {"source": "https://cookbook.oldsalt.zone/list.txt", "loadedAt": "\(t(-86_000))",
                   "domainRules": 234910, "v4Ranges": 1451, "v6Ranges": 241, "invalidLines": 0,
                   "memoryBytes": 2252800, "sha256Prefix": "9f2c41d07ab3e815"},
-         "policy": {"listURL": "https://cookbook.oldsalt.zone/saferoom.txt", "listPath": "/Library/Application Support/SafeRoom/blocklist.txt",
+         "policy": {"listURL": "https://cookbook.oldsalt.zone/list.txt", "listPath": "/Library/Application Support/SafeRoom/blocklist.txt",
                     "sha256Check": true, "auth": "bearer", "refreshSeconds": 3600, "maxChangePercent": 0,
                     "allowListCount": 3, "neverBlockHostCount": 2}}
         """

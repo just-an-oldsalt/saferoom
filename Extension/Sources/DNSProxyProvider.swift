@@ -13,9 +13,12 @@ import Synchronization
 /// extension, queries in that gap fail (docs/threat-model.md).
 final class DNSProxyProvider: NEDNSProxyProvider, NEAppProxyUDPFlowHandling, @unchecked Sendable {
     private let filter = DNSFilter(store: BlocklistStore())
+    /// Block events for the event URL. Empty and off when the policy has none.
+    private let events = EventBuffer()
     /// Written by startProxy and read by stopProxy, which can run on
     /// different threads.
     private let loader = Mutex<ListLoader?>(nil)
+    private let poster = Mutex<EventPoster?>(nil)
 
     // Completion-handler forms, not the async overrides: the async ones pass a
     // non-Sendable [String: Any] across an isolation boundary, which Swift 6
@@ -32,23 +35,28 @@ final class DNSProxyProvider: NEDNSProxyProvider, NEAppProxyUDPFlowHandling, @un
         // a changed configuration takes effect when the proxy restarts.
         let policy = ProviderPolicy(options?["VendorData"] as? [String: Any] ?? [:])
         Log.provider.notice(
-            "policy: listURL=\(policy.listURL.map(ExtensionStatus.PolicySummary.redacted) ?? "none", privacy: .public) listPath=\(policy.listPath, privacy: .public) sha256URL=\(policy.listSHA256URL != nil) auth=\(policy.auth.description, privacy: .public) refresh=\(policy.refreshInterval.components.seconds)s maxChange=\(policy.maxChangePercent)% allow=\(policy.allowList.count) neverBlockHosts=\(policy.neverBlockHosts.count)")
+            "policy: listURL=\(policy.listURL.map(ExtensionStatus.PolicySummary.redacted) ?? "none", privacy: .public) listPath=\(policy.listPath, privacy: .public) sha256URL=\(policy.listSHA256URL != nil) auth=\(policy.auth.description, privacy: .public) refresh=\(policy.refreshInterval.components.seconds)s maxChange=\(policy.maxChangePercent)% allow=\(policy.allowList.count) neverBlockHosts=\(policy.neverBlockHosts.count) eventURL=\(policy.eventURL.map(ExtensionStatus.PolicySummary.redacted) ?? "none", privacy: .public) eventAuth=\(policy.eventAuth.description, privacy: .public)")
         for problem in policy.ignored {
             Log.provider.error("policy value ignored: \(Log.clean(problem), privacy: .public)")
         }
         let loader = ListLoader(policy: policy, store: filter.store)
         self.loader.withLock { $0 = loader }
         Task { await loader.start() }
+        let poster = EventPoster(policy: policy, buffer: events, version: Self.version)
+        events.setEnabled(poster != nil)
+        self.poster.withLock { $0 = poster }
+        if let poster { Task { await poster.start() } }
         let startedAt = Date()
         let summary = ExtensionStatus.PolicySummary(policy)
         let counters = filter.counters
         ControlServer.shared.register(.init(
             status: {
                 let s = await loader.status()
+                let eventSummary = await poster?.summary()
                 return ExtensionStatus(
                     version: Self.version, startedAt: startedAt, policy: summary, list: s.list,
                     lastAttempt: s.attempt, lastSuccessAt: s.lastSuccessAt, nextRefreshAt: s.nextRefreshAt,
-                    consecutiveFailures: s.failures, counters: counters.values)
+                    consecutiveFailures: s.failures, counters: counters.values, events: eventSummary)
             },
             refreshNow: { await loader.refreshNow() }))
         // Never fail the start because of the list: fail-open.
@@ -61,6 +69,8 @@ final class DNSProxyProvider: NEDNSProxyProvider, NEAppProxyUDPFlowHandling, @un
     ) {
         Log.provider.notice("stopProxy reason=\(reason.rawValue, privacy: .public)")
         if let loader = loader.withLock({ $0 }) { Task { await loader.stop() } }
+        if let poster = poster.withLock({ $0 }) { Task { await poster.stop() } }
+        events.setEnabled(false)
         ControlServer.shared.register(nil)
         completionHandler()
     }
@@ -73,13 +83,13 @@ final class DNSProxyProvider: NEDNSProxyProvider, NEAppProxyUDPFlowHandling, @un
     }()
 
     func handleNewUDPFlow(_ flow: NEAppProxyUDPFlow, initialRemoteFlowEndpoint remoteEndpoint: NWEndpoint) -> Bool {
-        UDPRelay(flow: flow, filter: filter).start()
+        UDPRelay(flow: flow, filter: filter, events: events).start()
         return true
     }
 
     override func handleNewFlow(_ flow: NEAppProxyFlow) -> Bool {
         guard let tcp = flow as? NEAppProxyTCPFlow else { return false }
-        TCPRelay(flow: tcp, filter: filter).start()
+        TCPRelay(flow: tcp, filter: filter, events: events).start()
         return true
     }
 }

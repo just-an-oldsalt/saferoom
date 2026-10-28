@@ -33,6 +33,15 @@ public struct ProviderPolicy: Sendable, Equatable {
     public var maxListBytes: Int = 64 << 20
     /// Lets list rules like `*.zip` block a whole top-level domain.
     public var allowTopLevelBlocks = false
+    /// HTTPS URL that receives block events as JSON POSTs. Nil turns event
+    /// posting off.
+    public var eventURL: URL?
+    /// How to authenticate to `eventURL`. Separate from `auth`, so the list
+    /// token can stay read-only and the event token can only write events.
+    public var eventAuth: Auth = .none
+    /// Time between event posts. A post also goes out early when a full
+    /// batch is waiting.
+    public var eventInterval: Duration = .seconds(10)
     /// Policy values that were present but unusable, with the reason, for
     /// the log. Without this, a typo silently becomes a default.
     public var ignored: [String] = []
@@ -60,6 +69,7 @@ public struct ProviderPolicy: Sendable, Equatable {
         }
         listURL = url("ListURL", config)
         listSHA256URL = url("ListSHA256URL", config)
+        eventURL = url("EventURL", config)
         allowList = rules("AllowList", config)
         neverBlockHosts = rules("NeverBlockHosts", config).map(\.name)
         // Every number is clamped: an absurd profile value must not overflow
@@ -69,7 +79,11 @@ public struct ProviderPolicy: Sendable, Equatable {
         }
         if let percent = Self.int(config["MaxChangePercent"]) { maxChangePercent = min(max(percent, 0), 10_000) }
         if let megabytes = Self.int(config["MaxListMegabytes"]) { maxListBytes = min(max(megabytes, 1), 1024) << 20 }
+        if let seconds = Self.int(config["EventIntervalSeconds"]) {
+            eventInterval = .seconds(min(max(seconds, 1), 3600))
+        }
         auth = Self.auth(config["Auth"])
+        eventAuth = Self.auth(config["EventAuth"])
         allowTopLevelBlocks = config["AllowTopLevelBlocks"] as? Bool ?? false
     }
 
@@ -78,10 +92,11 @@ public struct ProviderPolicy: Sendable, Equatable {
     public var effectiveNeverBlock: [String] { NeverBlock.builtIn + neverBlockHosts }
 
     /// The list URL's host is never blocked, or a feed that listed its own
-    /// server could never be fixed. Exact name only: if the list sits on a
-    /// shared host, the names under it stay blockable.
+    /// server could never be fixed. The event URL's host neither, or a feed
+    /// that listed it would silently stop every event. Exact name only: if
+    /// a URL sits on a shared host, the names under it stay blockable.
     public var listHostRules: [DomainRule] {
-        [listURL, listSHA256URL].compactMap { url in
+        [listURL, listSHA256URL, eventURL].compactMap { url in
             guard let host = url?.host()?.lowercased(), IPAddress.parse(Substring(host)) == nil else { return nil }
             return DomainRule(name: host, match: .exact)
         }

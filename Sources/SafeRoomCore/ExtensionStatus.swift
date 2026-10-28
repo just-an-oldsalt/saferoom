@@ -15,11 +15,14 @@ public struct ExtensionStatus: Codable, Sendable, Equatable {
     public var nextRefreshAt: Date?
     public var consecutiveFailures: Int
     public var counters: CounterValues
+    /// Nil when the policy has no event URL. Event failures do not change
+    /// `health()`, which is about the list.
+    public var events: EventSummary?
 
     public init(
         version: String, startedAt: Date, policy: PolicySummary, list: ListSummary?,
         lastAttempt: Attempt?, lastSuccessAt: Date?, nextRefreshAt: Date?,
-        consecutiveFailures: Int, counters: CounterValues
+        consecutiveFailures: Int, counters: CounterValues, events: EventSummary? = nil
     ) {
         self.version = version
         self.startedAt = startedAt
@@ -30,6 +33,7 @@ public struct ExtensionStatus: Codable, Sendable, Equatable {
         self.nextRefreshAt = nextRefreshAt
         self.consecutiveFailures = consecutiveFailures
         self.counters = counters
+        self.events = events
     }
 
     public struct PolicySummary: Codable, Sendable, Equatable {
@@ -43,6 +47,9 @@ public struct ExtensionStatus: Codable, Sendable, Equatable {
         public var maxChangePercent: Int
         public var allowListCount: Int
         public var neverBlockHostCount: Int
+        /// Optional, so a status from an older extension still decodes.
+        public var eventURL: String?
+        public var eventAuth: String?
     }
 
     public struct ListSummary: Codable, Sendable, Equatable {
@@ -95,7 +102,9 @@ extension ExtensionStatus.PolicySummary {
             refreshSeconds: Int(policy.refreshInterval.components.seconds),
             maxChangePercent: policy.maxChangePercent,
             allowListCount: policy.allowList.count,
-            neverBlockHostCount: policy.neverBlockHosts.count)
+            neverBlockHostCount: policy.neverBlockHosts.count,
+            eventURL: policy.eventURL.map(Self.redacted),
+            eventAuth: policy.eventURL != nil ? policy.eventAuth.description : nil)
     }
 
     public static func redacted(_ url: URL) -> String {

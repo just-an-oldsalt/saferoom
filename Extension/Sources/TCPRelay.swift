@@ -20,6 +20,7 @@ import SafeRoomCore
 final class TCPRelay: @unchecked Sendable {
     private let flow: NEAppProxyTCPFlow
     private let filter: DNSFilter
+    private let events: EventBuffer
     private let app: String
     private let queue = DispatchQueue(label: "saferoom.tcp")
     private var upstream: NWConnection?
@@ -27,9 +28,10 @@ final class TCPRelay: @unchecked Sendable {
     private var fromUpstream = DNSTCPFramer()
     private var closed = false
 
-    init(flow: NEAppProxyTCPFlow, filter: DNSFilter) {
+    init(flow: NEAppProxyTCPFlow, filter: DNSFilter, events: EventBuffer) {
         self.flow = flow
         self.filter = filter
+        self.events = events
         self.app = flow.metaData.sourceAppSigningIdentifier
     }
 
@@ -74,6 +76,7 @@ final class TCPRelay: @unchecked Sendable {
                     switch filter.decide(query: message) {
                     case .block(let reply, let name, let type, let rule):
                         Log.blockedQuery(name: name, type: type, rule: rule, app: app, transport: "tcp")
+                        events.add(.init(query: name, type: type, rule: rule, app: app, transport: "tcp"))
                         writeToClient(reply, pending)
                     case .forward:
                         guard let framed = DNSTCPFramer.frame(message), let upstream else { continue }
@@ -97,6 +100,7 @@ final class TCPRelay: @unchecked Sendable {
                         writeToClient(message, pending)
                     case .block(let reply, let name, let reason):
                         Log.blockedResponse(name: name, reason: reason, app: app, transport: "tcp")
+                        events.add(.init(answer: name, reason: reason, app: app, transport: "tcp"))
                         writeToClient(reply, pending)
                     }
                 }

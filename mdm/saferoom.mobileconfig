@@ -106,6 +106,20 @@
 				<integer>0</integer>
 				<key>MaxListMegabytes</key>
 				<integer>64</integer>
+				<!-- Optional. Each block is sent to this URL as JSON, in
+				     batches. Remove the three Event keys to turn this off. -->
+				<key>EventURL</key>
+				<string>https://intel.example.com/saferoom/events</string>
+				<!-- A separate token that can only add events. -->
+				<key>EventAuth</key>
+				<dict>
+					<key>Type</key>
+					<string>bearer</string>
+					<key>Token</key>
+					<string>REPLACE-WITH-A-WRITE-ONLY-TOKEN</string>
+				</dict>
+				<key>EventIntervalSeconds</key>
+				<integer>10</integer>
 				<!-- Never blocked. Same forms as the list. -->
 				<key>AllowList</key>
 				<array>

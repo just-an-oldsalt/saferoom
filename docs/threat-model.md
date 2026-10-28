@@ -66,6 +66,14 @@ SafeRoom never logs the token. It removes the query string and the user informat
 
 SafeRoom sends the token or the client certificate only to the host of the list URL. It refuses a redirect to another host.
 
+The `EventAuth` token has the same problem: any local user can read it. A user with the token can send false events, or many events, to the event server. Give that token permission to add events and nothing else. SafeRoom sends it only to `EventURL` and refuses every redirect from that URL.
+
+## Block events
+
+If the policy sets `EventURL`, each block leaves the Mac: the query name, the app that asked, the host name, and the serial number. Tell your users that blocked lookups are reported, where your rules require it. Lookups that SafeRoom does not block are never sent.
+
+The event buffer is in memory and holds at most 10,000 events. A process that causes many blocks can push older events out of the buffer. The next request then reports the count in `dropped`, so the server knows that events are missing.
+
 ## The status channel
 
 The app and the extension talk over XPC. Each side reads the code signature of the other, and refuses the connection unless the team ID is the same. Another process on the Mac cannot read the status or start a download. A test with a client that had a different signature was refused.

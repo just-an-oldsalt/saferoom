@@ -54,10 +54,13 @@ To change the policy, edit the profile in Jamf. The extension reads the policy a
 | `MaxChangePercent` | integer | 0 | If the entry count of a new list changes by more than this percentage, SafeRoom rejects it. 0, the default, turns the rule off. Read the warning in the update section before you turn it on. |
 | `MaxListMegabytes` | integer | 64 | SafeRoom rejects a download larger than this. |
 | `AllowTopLevelBlocks` | boolean | false | Lets list rules like `*.zip` block a whole top-level domain. Off by default, so a bad feed cannot block `*.com`. |
+| `EventURL` | string | none | HTTPS URL that receives block events as JSON POST requests. If it is not set, SafeRoom posts no events. See [Block events](#block-events). |
+| `EventAuth` | dictionary | none | How to authenticate to `EventURL`. Same form as `Auth`, with its own token. |
+| `EventIntervalSeconds` | integer | 10 | Time between event posts. The range is 1 to 3600. |
 
-`ListURL` and `ListSHA256URL` must use HTTPS. Plain HTTP works only for `localhost` and `127.0.0.1`, for tests.
+`ListURL`, `ListSHA256URL`, and `EventURL` must use HTTPS. Plain HTTP works only for `localhost` and `127.0.0.1`, for tests.
 
-SafeRoom never blocks the host of `ListURL`, so a feed that lists its own server cannot stop the fix from arriving. This applies to that exact name only. If the list is on a shared host, the names under it stay blockable.
+SafeRoom never blocks the host of `ListURL`, so a feed that lists its own server cannot stop the fix from arriving. SafeRoom also never blocks the host of `EventURL`, so a feed cannot stop the events. This applies to that exact name only. If the list is on a shared host, the names under it stay blockable.
 
 ## Auth
 
@@ -70,7 +73,54 @@ Any local user can read the token, because macOS stores the proxy configuration 
 
 SafeRoom follows a redirect only to the same host over the same scheme. It never sends the token to another host.
 
+SafeRoom sends the `EventAuth` token only to `EventURL`. Give it permission to add events and nothing else. Do not use the list token for events.
+
 SafeRoom also sends the token with the hash file download if the hash file is on the same host and port as `ListURL`. With `ListSHA256URL` set and `RefreshSeconds` at 300, the token goes to the server every 5 minutes instead of once an hour. Server logs that record the `Authorization` header then hold more copies of it.
+
+## Block events
+
+If `EventURL` is set, SafeRoom sends each blocked query and each blocked answer to that URL. The event has the same data as the line in the `block` log category.
+
+SafeRoom collects the events in memory and sends them in batches. Every `EventIntervalSeconds`, it sends the events that are waiting, at most 500 in one request. The request is a `POST` with `Content-Type: application/json`. If `EventAuth` has the type `bearer`, the request carries `Authorization: Bearer <Token>`. The `clientCertificate` type also works, with the same keys as in `Auth`.
+
+This is an example of a request body:
+
+```json
+{
+  "device": {"hostname": "mac-0142", "serialNumber": "C02XYZ123ABC", "version": "0.1.4 (19)"},
+  "sentAt": "2026-10-27T21:40:10Z",
+  "dropped": 0,
+  "events": [
+    {"time": "2026-10-27T21:40:02Z", "kind": "query", "name": "bad.example", "type": 1,
+     "rule": "bad.example", "app": "com.apple.Safari", "transport": "udp"},
+    {"time": "2026-10-27T21:40:05Z", "kind": "answer", "name": "cdn.example", "alias": "bad.example",
+     "rule": "bad.example", "app": "com.google.Chrome", "transport": "udp"},
+    {"time": "2026-10-27T21:40:07Z", "kind": "answer", "name": "host.example", "address": "203.0.113.9",
+     "app": "curl", "transport": "tcp"}
+  ]
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `device.hostname` | The local host name of the Mac. |
+| `device.serialNumber` | The hardware serial number, the same as in the MDM inventory. Missing if SafeRoom cannot read it. |
+| `device.version` | The SafeRoom version and build. |
+| `dropped` | The number of events that SafeRoom lost since the previous request, because too many events were waiting. |
+| `kind` | `query` if the query name is on the list. `answer` if the upstream answer named a listed alias or address. |
+| `name` | The name in the query. |
+| `type` | The DNS record type of the query, as a number. Only for `query`. |
+| `rule` | The list rule that matched. |
+| `alias` | The listed CNAME or SVCB target in the answer. |
+| `address` | The listed address in the answer. |
+| `app` | The code signing identifier of the app that asked. |
+| `transport` | `udp` or `tcp`. |
+
+The server must reply with a status from 200 to 299. SafeRoom does not read the reply body. If a request fails, SafeRoom keeps the events and tries again after 1 minute, then 2, 4, 8, and so on, up to 10 minutes. SafeRoom never follows a redirect from `EventURL`.
+
+SafeRoom keeps at most 10,000 events in memory. If more are waiting, for example while the server is down, SafeRoom drops the oldest tenth and counts them in `dropped`. Events are not written to disk, so a restart of the extension loses the events that are waiting.
+
+A slow or failed event server never changes or delays a DNS answer. Event failures do not change the health state. `SafeRoom --status` shows them under `events`.
 
 ## How SafeRoom updates the list
 
@@ -99,7 +149,7 @@ The SafeRoom app binary has three command-line modes. They work from Terminal an
 
 | Command | Output |
 |---|---|
-| `SafeRoom --status` | The extension's status as JSON: the list, the last check, the policy, and block counts. |
+| `SafeRoom --status` | The extension's status as JSON: the list, the last check, the policy, block counts, and event posts. |
 | `SafeRoom --refresh` | Runs a check at once, then prints the status as JSON. The extension runs at most one manual check every 5 minutes. |
 | `SafeRoom --jamf` | One line for a Jamf extension attribute. |
 
@@ -135,3 +185,4 @@ log stream --predicate 'subsystem == "com.oldsalt.saferoom"'
 | `list` | Downloads, rejections with the reason, and invalid lines. |
 | `block` | Each blocked query or answer, with the rule and the app that asked. |
 | `flow` | Connection errors. |
+| `event` | Failed event posts, with the reason. |

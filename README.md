@@ -4,7 +4,7 @@
 
 SafeRoom is a macOS system extension that blocks DNS lookups for domains on a threat intelligence list. It answers NXDOMAIN (the DNS "this name does not exist" reply) for each listed domain. All other queries go to the resolver that the Mac already uses.
 
-SafeRoom targets lists of 100,000 to 250,000 domains, which is more than most commercial blocking products accept. The whole list stays in memory as a compact hash table.
+SafeRoom works well with lists of up to about 3 million domains. A test with 10 million domains also worked, but each update then needs 44 seconds and over 1 GB of memory while it compiles. The whole list stays in memory as a compact hash table. [docs/performance.md](docs/performance.md) has the measurements.
 
 An MDM (Jamf or any other) deploys and configures SafeRoom. The policy sets where the list comes from: an HTTPS URL or a local file.
 
@@ -19,6 +19,19 @@ The app window shows the extension's health, the list in use, and the policy, an
 <img src="docs/images/status.png" width="460" alt="The SafeRoom window: health, list, and policy">
 
 The screenshot shows sample data (`-SampleStatus YES`, Debug builds only).
+
+## Free threat list
+
+The [cookbook](https://cookbook.oldsalt.zone/) list is free for anyone to use with SafeRoom. It merges several open threat intelligence feeds into one list in the SafeRoom format, with about 235,000 domains and 1,700 address ranges. The list needs no token. Set these two keys in the MDM policy:
+
+```xml
+<key>ListURL</key>
+<string>https://cookbook.oldsalt.zone/list.txt</string>
+<key>ListSHA256URL</key>
+<string>https://cookbook.oldsalt.zone/list.txt.sha256</string>
+```
+
+The list comes with no warranty. Read the [sources and licenses](https://cookbook.oldsalt.zone/attribution.txt), and check the entries before you rely on the list.
 
 ## Documentation
 

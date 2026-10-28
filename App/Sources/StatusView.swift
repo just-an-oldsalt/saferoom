@@ -242,6 +242,7 @@ private struct PolicySection: View {
             Row("Refresh interval", Duration.seconds(policy.refreshSeconds).formatted(.units(allowed: [.hours, .minutes], width: .wide)))
             Row("Allow list", "\(policy.allowListCount) entries")
             Row("Never-block hosts", "\(policy.neverBlockHostCount) entries")
+            if let eventURL = policy.eventURL { Row("Block events", eventURL, mono: true) }
         } header: {
             Text("Policy")
         } footer: {
