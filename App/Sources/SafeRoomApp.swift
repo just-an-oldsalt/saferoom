@@ -1,3 +1,4 @@
+import NetworkExtension
 import SafeRoomCore
 import SwiftUI
 
@@ -5,6 +6,7 @@ struct SafeRoomApp: App {
     @State private var activator = ExtensionActivator()
     @State private var proxy = ProxyConfigurator()
     @State private var monitor = StatusMonitor()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
@@ -17,6 +19,18 @@ struct SafeRoomApp: App {
                     proxy.refresh()
                 }
                 .task { await monitor.poll() }
+                // The configuration can change while the window is open: in
+                // System Settings, from an MDM profile, or by another copy
+                // of the app. A stale view would lock or unlock the window
+                // wrongly.
+                .task {
+                    for await _ in NotificationCenter.default.notifications(named: .NEDNSProxyConfigurationDidChange) {
+                        proxy.refresh()
+                    }
+                }
+                .onChange(of: scenePhase) { _, phase in
+                    if phase == .active { proxy.refresh() }
+                }
         }
         .windowResizability(.contentSize)
         .windowToolbarStyle(.unifiedCompact(showsTitle: false))

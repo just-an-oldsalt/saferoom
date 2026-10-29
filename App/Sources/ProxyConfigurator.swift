@@ -23,19 +23,23 @@ final class ProxyConfigurator {
     func refresh() {
         let manager = NEDNSProxyManager.shared()
         manager.loadFromPreferences { [self] error in
-            let enabled = manager.isEnabled
-            let config = manager.providerProtocol.map { $0.providerConfiguration ?? [:] }
-            let configured = config != nil
-            let byApp = config.map { ProviderPolicy($0).configuredByApp } ?? false
-            let settings = byApp ? config.map(UserSettings.init(configuration:)) : nil
+            let found = Self.found(manager)
+            let config = manager.providerProtocol?.providerConfiguration ?? [:]
+            let settings = found == .configured(byApp: true, enabled: manager.isEnabled)
+                ? UserSettings(configuration: config) : nil
+            let detail = "protocol \(manager.providerProtocol == nil ? "none" : "present"), \(config.count) keys"
             Task { @MainActor in
                 if let error {
                     state = "Error: \(error.localizedDescription)"
                     self.manager = .unknown
                     return
                 }
-                state = !configured ? "Not configured" : enabled ? "Enabled" : "Configured, disabled"
-                self.manager = configured ? .configured(byApp: byApp, enabled: enabled) : .none
+                state = switch found {
+                case .none, .unknown: "Not configured (\(detail))"
+                case .configured(let byApp, let enabled):
+                    "\(enabled ? "Enabled" : "Configured, disabled"), \(byApp ? "by the app" : "not by the app") (\(detail))"
+                }
+                self.manager = found
                 self.settings = settings
             }
         }
@@ -61,11 +65,12 @@ final class ProxyConfigurator {
     private func write(_ configuration: [String: Any], enabled: Bool) async -> String? {
         let manager = NEDNSProxyManager.shared()
         if let error = await load(manager) { return error }
-        if let existing = manager.providerProtocol, !ProviderPolicy(existing.providerConfiguration ?? [:]).configuredByApp {
+        let found = Self.found(manager)
+        guard found.writable else {
             return "This Mac's DNS proxy is set by device management. SafeRoom cannot change it."
         }
         let wasEnabled = manager.isEnabled
-        let proto = manager.providerProtocol ?? NEDNSProxyProviderProtocol()
+        let proto = found == .none ? NEDNSProxyProviderProtocol() : manager.providerProtocol ?? NEDNSProxyProviderProtocol()
         proto.providerBundleIdentifier = ExtensionActivator.extensionID
         proto.providerConfiguration = configuration
         manager.providerProtocol = proto
@@ -81,6 +86,13 @@ final class ProxyConfigurator {
         }
         manager.isEnabled = enabled
         return await save(manager)
+    }
+
+    nonisolated private static func found(_ manager: NEDNSProxyManager) -> ConfigurationAccess.Manager {
+        ConfigurationAccess.Manager(
+            hasProtocol: manager.providerProtocol != nil,
+            configuration: manager.providerProtocol?.providerConfiguration,
+            enabled: manager.isEnabled)
     }
 
     private func load(_ manager: NEDNSProxyManager) async -> String? {
@@ -143,10 +155,22 @@ final class ProxyConfigurator {
         return policy
     }
 
+    /// Development hook: back to the first run, with no System Settings trip.
+    func removeConfiguration() {
+        let manager = NEDNSProxyManager.shared()
+        manager.loadFromPreferences { [self] _ in
+            manager.removeFromPreferences { [self] error in
+                Task { @MainActor in
+                    if let error { state = "Error: \(error.localizedDescription)" } else { refresh() }
+                }
+            }
+        }
+    }
+
     func setEnabled(_ enabled: Bool) {
         let manager = NEDNSProxyManager.shared()
         manager.loadFromPreferences { [self] _ in
-            if manager.providerProtocol == nil {
+            if Self.found(manager) == .none {
                 let proto = NEDNSProxyProviderProtocol()
                 proto.providerBundleIdentifier = ExtensionActivator.extensionID
                 proto.providerConfiguration = Self.testPolicy

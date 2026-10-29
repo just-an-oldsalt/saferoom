@@ -37,6 +37,6 @@ The release scripts find your certificates in the keychain by team ID, so no nam
 
 `make release DEV_CONTROLS=1` builds a version with buttons that turn the proxy on and off and with a `-TestPolicy` launch argument. Use it only on test Macs. A fleet build has neither. On a managed Mac, a fleet build is read-only. On a Mac with no MDM, the user can pick the list in the app (see the threat model, "Who can change the policy").
 
-A proxy configuration written by an earlier development build has no `ConfiguredBy` key, so the window shows that Mac as managed. To fix it, launch a development build with `-TestPolicy '{}'`. The dev controls now add `ConfiguredBy = app` unless the test policy sets the key.
+A proxy configuration written by an earlier development build has no `ConfiguredBy` key, so the window shows that Mac as managed. To fix it, click Remove in a development build's window, or delete SafeRoom in System Settings > Network > Filters & Proxies. A fleet build then shows the first run. The dev controls now add `ConfiguredBy = app` unless the test policy sets the key.
 
 Debug builds accept `-SampleStatus YES` and `-SampleAccess firstRun`, `on`, or `off`, which show made-up data and the matching window mode, with no extension.

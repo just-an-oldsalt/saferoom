@@ -361,6 +361,8 @@ private struct DevSection: View {
                 Button("Activate extension") { activator.activate() }
                 Button("Enable DNS proxy") { proxy.setEnabled(true) }
                 Button("Disable") { proxy.setEnabled(false) }
+                Button("Remove") { proxy.removeConfiguration() }
+                    .help("Deletes the app's DNS proxy configuration, as on a new Mac.")
             }
         } header: {
             Label("Development build", systemImage: "hammer")

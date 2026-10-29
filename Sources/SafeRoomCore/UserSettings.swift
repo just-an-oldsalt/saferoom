@@ -134,6 +134,29 @@ public enum ConfigurationAccess: Sendable, Equatable {
         case unknown
         case none
         case configured(byApp: Bool, enabled: Bool)
+
+        /// Reads what `loadFromPreferences` left in the manager.
+        ///
+        /// With nothing saved, the manager can still hold a protocol with no
+        /// provider configuration, turned off. That is no configuration. An
+        /// MDM DNS proxy payload is always turned on, so an empty protocol
+        /// that is on still counts as configured, and as not the app's.
+        public init(hasProtocol: Bool, configuration: [String: Any]?, enabled: Bool) {
+            guard hasProtocol, enabled || !(configuration ?? [:]).isEmpty else {
+                self = .none
+                return
+            }
+            self = .configured(byApp: ProviderPolicy(configuration ?? [:]).configuredByApp, enabled: enabled)
+        }
+
+        /// True when the app may write its own configuration over it.
+        public var writable: Bool {
+            switch self {
+            case .none: true
+            case .configured(let byApp, _): byApp
+            case .unknown: false
+            }
+        }
     }
 
     /// - Parameters:

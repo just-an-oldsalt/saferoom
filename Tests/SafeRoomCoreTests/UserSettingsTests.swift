@@ -87,3 +87,19 @@ private func running(byApp: Bool) -> ExtensionStatus.PolicySummary {
     #expect(running(byApp: true).configuredBy == "app")
     #expect(running(byApp: false).configuredBy == nil)
 }
+
+@Test func emptyProtocolThatIsOffIsNoConfiguration() {
+    typealias M = ConfigurationAccess.Manager
+    // What loadFromPreferences leaves with nothing saved.
+    #expect(M(hasProtocol: false, configuration: nil, enabled: false) == .none)
+    #expect(M(hasProtocol: true, configuration: nil, enabled: false) == .none)
+    #expect(M(hasProtocol: true, configuration: [:], enabled: false) == .none)
+    // Turned on, or with content: a real configuration.
+    #expect(M(hasProtocol: true, configuration: nil, enabled: true) == .configured(byApp: false, enabled: true))
+    #expect(M(hasProtocol: true, configuration: ["ListURL": "https://a.test/l"], enabled: false)
+        == .configured(byApp: false, enabled: false))
+    #expect(M(hasProtocol: true, configuration: UserSettings().configuration, enabled: false)
+        == .configured(byApp: true, enabled: false))
+    #expect(M.none.writable && M.configured(byApp: true, enabled: true).writable)
+    #expect(!M.unknown.writable && !M.configured(byApp: false, enabled: false).writable)
+}
