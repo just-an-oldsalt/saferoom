@@ -62,6 +62,9 @@ final class ListFetcher: NSObject, URLSessionTaskDelegate, Sendable {
         config.httpCookieStorage = nil
         config.timeoutIntervalForRequest = 30
         config.timeoutIntervalForResource = 300
+        // ATS is off in this extension (Info.plist), so its TLS floor is set
+        // here.
+        config.tlsMinimumSupportedProtocolVersion = .TLSv12
         return URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }
 

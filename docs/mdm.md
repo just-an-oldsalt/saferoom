@@ -136,11 +136,12 @@ If `EventServerPins` is set, these rules apply:
 - The server's key must be EC P-256 and must match one entry. A pin replaces the system trust check. SafeRoom does not check the certificate's name or dates, so an expired certificate with the same key still works.
 - The connection must use TLS 1.3.
 - If no entry is usable, SafeRoom refuses every post. It never falls back to the system trust check.
+- SafeRoom 0.1.7 or later is needed. In 0.1.6, a second trust check (App Transport Security) refused a self-signed server after the pin matched, and every post failed with URLError -1200.
 - To change the server key without losing events, add the new pin before you change the key, and remove the old pin after.
 
 If a post fails, `SafeRoom --status` shows the reason under `events.lastError`, for example "server pin mismatch". The `policy.eventServerPins` field shows how many pins are usable.
 
-If `EventAuth` uses `clientCertificate`, SafeRoom skips certificates that are expired or not yet valid. If more than one certificate matches, it takes the one that expires last. This rule also applies to `Auth`.
+If `EventAuth` uses `clientCertificate`, SafeRoom skips certificates that are expired or not yet valid. If more than one certificate matches, it takes the one that expires last. This rule also applies to `Auth`. Before SafeRoom sends a certificate to `EventURL`, it makes a test signature with its key. If the key cannot sign, `events.lastError` starts with "the client certificate's key cannot sign" and gives the keychain error.
 
 A slow or failed event server never changes or delays a DNS answer. Event failures do not change the health state. `SafeRoom --status` shows them under `events`.
 

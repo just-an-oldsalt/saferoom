@@ -136,7 +136,9 @@ actor EventPoster {
         config.httpCookieStorage = nil
         config.timeoutIntervalForRequest = timeout
         config.timeoutIntervalForResource = 2 * timeout
-        if pins != nil { config.tlsMinimumSupportedProtocolVersion = .TLSv13 }
+        // ATS is off in this extension (Info.plist), so its TLS floor is set
+        // here.
+        config.tlsMinimumSupportedProtocolVersion = pins != nil ? .TLSv13 : .TLSv12
         // One delegate per post, so the failure it records belongs to this
         // post.
         let delegate = Delegate(auth: auth, url: url, pins: pins)
@@ -150,8 +152,21 @@ actor EventPoster {
         } catch {
             // The delegate's reason is clearer than "cancelled".
             if let reason = delegate.failure { return reason }
-            return (error as? URLError).map { "\($0.localizedDescription) (URLError \($0.code.rawValue))" }
-                ?? String(describing: error)
+            guard let urlError = error as? URLError else { return String(describing: error) }
+            let text = "\(urlError.localizedDescription) (URLError \(urlError.code.rawValue))"
+            let tlsCodes: Set<URLError.Code> = [
+                .secureConnectionFailed, .serverCertificateUntrusted, .serverCertificateHasBadDate,
+                .serverCertificateHasUnknownRoot, .serverCertificateNotYetValid,
+                .clientCertificateRejected, .clientCertificateRequired,
+            ]
+            guard tlsCodes.contains(urlError.code) else { return text }
+            if delegate.pinAccepted, !delegate.presentedClientCertificate {
+                return "the server key matched a pin, but a second trust check (App Transport Security) refused the server: \(text)"
+            }
+            if delegate.presentedClientCertificate {
+                return "the server refused the client certificate, or the handshake failed after it was sent: \(text)"
+            }
+            return text
         }
     }
 
@@ -183,9 +198,14 @@ actor EventPoster {
         private let port: Int
         private let pins: [Data]?
         private let failureText = Mutex<String?>(nil)
+        private let steps = Mutex<(pin: Bool, clientCertificate: Bool)>((false, false))
 
         /// Why the delegate refused the connection, for `lastError`.
         var failure: String? { failureText.withLock { $0 } }
+        /// The server's key matched a pin.
+        var pinAccepted: Bool { steps.withLock { $0.pin } }
+        /// A client certificate went to the server.
+        var presentedClientCertificate: Bool { steps.withLock { $0.clientCertificate } }
 
         init(auth: ProviderPolicy.Auth, url: URL, pins: [Data]?) {
             self.auth = auth
@@ -220,6 +240,7 @@ actor EventPoster {
                 if let failure = ServerPins.check(pins: pins, leaf: Self.leafKey(trust)) {
                     return refuse(failure.description)
                 }
+                steps.withLock { $0.pin = true }
                 return (.useCredential, URLCredential(trust: trust))
             }
             guard method == NSURLAuthenticationMethodClientCertificate else {
@@ -234,7 +255,38 @@ actor EventPoster {
             guard let identity = ListFetcher.findIdentity(subjectContains: subject, issuerContains: issuer) else {
                 return refuse("no valid client certificate: no unexpired keychain identity matches \(auth.description)")
             }
+            // The key may refuse to sign for this process, for example
+            // because of its access control list. TLS would report that only
+            // as a generic handshake failure, so try a signature first.
+            if let problem = Self.signingProblem(identity) {
+                return refuse("the client certificate's key cannot sign: \(problem)")
+            }
+            steps.withLock { $0.clientCertificate = true }
             return (.useCredential, URLCredential(identity: identity, certificates: nil, persistence: .forSession))
+        }
+
+        /// Nil when the identity's private key signs a test digest, else
+        /// the reason. TLS 1.3 signs with RSA-PSS or ECDSA. TLS 1.2 can also
+        /// use RSA PKCS #1, so an RSA key that cannot do PSS tries that.
+        static func signingProblem(_ identity: SecIdentity) -> String? {
+            var privateKey: SecKey?
+            let status = SecIdentityCopyPrivateKey(identity, &privateKey)
+            guard status == errSecSuccess, let privateKey else {
+                return "the private key cannot be read (OSStatus \(status))"
+            }
+            let type = (SecKeyCopyAttributes(privateKey) as? [String: Any])?[kSecAttrKeyType as String] as? String
+            let choices: [SecKeyAlgorithm] = type == kSecAttrKeyTypeRSA as String
+                ? [.rsaSignatureDigestPSSSHA256, .rsaSignatureDigestPKCS1v15SHA256] : [.ecdsaSignatureDigestX962SHA256]
+            guard let algorithm = choices.first(where: { SecKeyIsAlgorithmSupported(privateKey, .sign, $0) }) else {
+                return "the key supports none of \(choices.map(\.rawValue))"
+            }
+            var error: Unmanaged<CFError>?
+            guard SecKeyCreateSignature(privateKey, algorithm, Data(count: 32) as CFData, &error) != nil else {
+                let cfError = error?.takeRetainedValue()
+                return cfError.map { "\(CFErrorGetDomain($0) as String) \(CFErrorGetCode($0)): \(CFErrorCopyDescription($0) as String)" }
+                    ?? "unknown error"
+            }
+            return nil
         }
 
         /// The server's leaf key, in the form the pin check reads.
