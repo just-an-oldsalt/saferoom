@@ -35,7 +35,7 @@ final class DNSProxyProvider: NEDNSProxyProvider, NEAppProxyUDPFlowHandling, @un
         // a changed configuration takes effect when the proxy restarts.
         let policy = ProviderPolicy(options?["VendorData"] as? [String: Any] ?? [:])
         Log.provider.notice(
-            "policy: listURL=\(policy.listURL.map(ExtensionStatus.PolicySummary.redacted) ?? "none", privacy: .public) listPath=\(policy.listPath, privacy: .public) sha256URL=\(policy.listSHA256URL != nil) auth=\(policy.auth.description, privacy: .public) refresh=\(policy.refreshInterval.components.seconds)s maxChange=\(policy.maxChangePercent)% allow=\(policy.allowList.count) neverBlockHosts=\(policy.neverBlockHosts.count) eventURL=\(policy.eventURL.map(ExtensionStatus.PolicySummary.redacted) ?? "none", privacy: .public) eventAuth=\(policy.eventAuth.description, privacy: .public)")
+            "policy: listURL=\(policy.listURL.map(ExtensionStatus.PolicySummary.redacted) ?? "none", privacy: .public) listPath=\(policy.listPath, privacy: .public) sha256URL=\(policy.listSHA256URL != nil) auth=\(policy.auth.description, privacy: .public) refresh=\(policy.refreshInterval.components.seconds)s maxChange=\(policy.maxChangePercent)% allow=\(policy.allowList.count) neverBlockHosts=\(policy.neverBlockHosts.count) eventURL=\(policy.eventURL.map(ExtensionStatus.PolicySummary.redacted) ?? "none", privacy: .public) eventAuth=\(policy.eventAuth.description, privacy: .public) eventServerPins=\(policy.eventServerPins.map { String($0.count) } ?? "none", privacy: .public)")
         for problem in policy.ignored {
             Log.provider.error("policy value ignored: \(Log.clean(problem), privacy: .public)")
         }
@@ -69,10 +69,20 @@ final class DNSProxyProvider: NEDNSProxyProvider, NEAppProxyUDPFlowHandling, @un
     ) {
         Log.provider.notice("stopProxy reason=\(reason.rawValue, privacy: .public)")
         if let loader = loader.withLock({ $0 }) { Task { await loader.stop() } }
-        if let poster = poster.withLock({ $0 }) { Task { await poster.stop() } }
-        events.setEnabled(false)
         ControlServer.shared.register(nil)
-        completionHandler()
+        guard let poster = poster.withLock({ $0 }) else {
+            events.setEnabled(false)
+            return completionHandler()
+        }
+        // The waiting events are in memory only. Give them one last post,
+        // but never hold up the stop for longer than two seconds. Turning
+        // the buffer off empties it, so that comes after the post.
+        nonisolated(unsafe) let done = completionHandler
+        Task { [events] in
+            await poster.stop(flushWithin: .seconds(2))
+            events.setEnabled(false)
+            done()
+        }
     }
 
     static let version: String = {

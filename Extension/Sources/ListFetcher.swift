@@ -160,6 +160,12 @@ final class ListFetcher: NSObject, URLSessionTaskDelegate, Sendable {
             Log.list.error("keychain identity search failed: OSStatus \(status, privacy: .public)")
             return nil
         }
+        // A yearly renewal leaves the old certificate next to the new one
+        // for a while. Skip the ones out of their validity dates, and take
+        // the one that expires last.
+        let now = Date()
+        var best: (identity: SecIdentity, notAfter: Date, issuer: String)?
+        var expired = 0
         for identity in identities {
             var certificate: SecCertificate?
             guard SecIdentityCopyCertificate(identity, &certificate) == errSecSuccess, let certificate else { continue }
@@ -167,12 +173,34 @@ final class ListFetcher: NSObject, URLSessionTaskDelegate, Sendable {
             let issuerText = issuerSummary(certificate)
             if let subject, !subjectText.localizedCaseInsensitiveContains(subject) { continue }
             if let issuer, !issuerText.localizedCaseInsensitiveContains(issuer) { continue }
-            // The issuer only: a subject can hold a person's name or email.
-            Log.list.notice("using a client certificate issued by \(Log.clean(issuerText), privacy: .public)")
-            return identity
+            guard let (notBefore, notAfter) = validity(certificate), notBefore <= now, now < notAfter else {
+                expired += 1
+                continue
+            }
+            if best == nil || notAfter > best!.notAfter { best = (identity, notAfter, issuerText) }
         }
-        Log.list.error("searched \(identities.count) keychain identities, none matched")
+        if let best {
+            // The issuer only: a subject can hold a person's name or email.
+            Log.list.notice("using a client certificate issued by \(Log.clean(best.issuer), privacy: .public), valid until \(best.notAfter.ISO8601Format(), privacy: .public)")
+            return best.identity
+        }
+        Log.list.error("searched \(identities.count) keychain identities, none matched (\(expired) matched but are expired or not yet valid)")
         return nil
+    }
+
+    /// The certificate's validity dates, or nil if they cannot be read.
+    static func validity(_ certificate: SecCertificate) -> (Date, Date)? {
+        let keys = [kSecOIDX509V1ValidityNotBefore, kSecOIDX509V1ValidityNotAfter] as CFArray
+        guard let values = SecCertificateCopyValues(certificate, keys, nil) as? [String: Any] else { return nil }
+        func date(_ oid: CFString) -> Date? {
+            guard let entry = values[oid as String] as? [String: Any],
+                  let seconds = entry[kSecPropertyKeyValue as String] as? NSNumber
+            else { return nil }
+            return Date(timeIntervalSinceReferenceDate: seconds.doubleValue)
+        }
+        guard let notBefore = date(kSecOIDX509V1ValidityNotBefore), let notAfter = date(kSecOIDX509V1ValidityNotAfter)
+        else { return nil }
+        return (notBefore, notAfter)
     }
 
     static func issuerSummary(_ certificate: SecCertificate) -> String {

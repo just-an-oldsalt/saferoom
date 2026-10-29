@@ -50,6 +50,8 @@ public struct ExtensionStatus: Codable, Sendable, Equatable {
         /// Optional, so a status from an older extension still decodes.
         public var eventURL: String?
         public var eventAuth: String?
+        /// The number of usable `EventServerPins`. Nil when the key is absent.
+        public var eventServerPins: Int?
         /// "app" when the SafeRoom app wrote the policy, nil for MDM.
         public var configuredBy: String?
     }
@@ -107,6 +109,7 @@ extension ExtensionStatus.PolicySummary {
             neverBlockHostCount: policy.neverBlockHosts.count,
             eventURL: policy.eventURL.map(Self.redacted),
             eventAuth: policy.eventURL != nil ? policy.eventAuth.description : nil,
+            eventServerPins: policy.eventURL != nil ? policy.eventServerPins?.count : nil,
             configuredBy: policy.configuredByApp ? ProviderPolicy.configuredByApp : nil)
     }
 

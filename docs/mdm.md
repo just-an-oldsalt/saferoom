@@ -59,6 +59,7 @@ To change the policy, edit the profile in Jamf. The extension reads the policy a
 | `EventURL` | string | none | HTTPS URL that receives block events as JSON POST requests. If it is not set, SafeRoom posts no events. See [Block events](#block-events). |
 | `EventAuth` | dictionary | none | How to authenticate to `EventURL`. Same form as `Auth`, with its own token. |
 | `EventIntervalSeconds` | integer | 10 | Time between event posts. The range is 1 to 3600. |
+| `EventServerPins` | array of strings | none | Pins for the `EventURL` server's key. If set, SafeRoom accepts the server only if its key matches a pin. See [Server pins](#server-pins). |
 
 `ListURL`, `ListSHA256URL`, and `EventURL` must use HTTPS. Plain HTTP works only for `localhost` and `127.0.0.1`, for tests.
 
@@ -118,9 +119,28 @@ This is an example of a request body:
 | `app` | The code signing identifier of the app that asked. |
 | `transport` | `udp` or `tcp`. |
 
-The server must reply with a status from 200 to 299. SafeRoom does not read the reply body. If a request fails, SafeRoom keeps the events and tries again after 1 minute, then 2, 4, 8, and so on, up to 10 minutes. SafeRoom never follows a redirect from `EventURL`.
+The server must reply with a status from 200 to 299. SafeRoom does not read the reply body. If a request fails, SafeRoom keeps the events and tries again after 1 minute, then 2, 4, 8, and so on, up to 10 minutes. Each wait is longer or shorter by up to a quarter, at random, so that a fleet of Macs does not retry at the same moment after an outage. SafeRoom never follows a redirect from `EventURL`.
 
-SafeRoom keeps at most 10,000 events in memory. If more are waiting, for example while the server is down, SafeRoom drops the oldest tenth and counts them in `dropped`. Events are not written to disk, so a restart of the extension loses the events that are waiting.
+SafeRoom keeps at most 10,000 events in memory. If more are waiting, for example while the server is down, SafeRoom drops the oldest tenth and counts them in `dropped`. Events are not written to disk. When the proxy stops, for example for an upgrade, SafeRoom makes one last request with the waiting events and waits at most 2 seconds for it. If that request fails, the events are lost.
+
+### Server pins
+
+`EventServerPins` lets SafeRoom post to a server with a self-signed certificate, for example a load balancer inside your network. Each entry is the base64 SHA-256 of the server's public key. Get it from the server's certificate with this command:
+
+```sh
+openssl x509 -in server.pem -pubkey -noout | openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | base64
+```
+
+If `EventServerPins` is set, these rules apply:
+
+- The server's key must be EC P-256 and must match one entry. A pin replaces the system trust check. SafeRoom does not check the certificate's name or dates, so an expired certificate with the same key still works.
+- The connection must use TLS 1.3.
+- If no entry is usable, SafeRoom refuses every post. It never falls back to the system trust check.
+- To change the server key without losing events, add the new pin before you change the key, and remove the old pin after.
+
+If a post fails, `SafeRoom --status` shows the reason under `events.lastError`, for example "server pin mismatch". The `policy.eventServerPins` field shows how many pins are usable.
+
+If `EventAuth` uses `clientCertificate`, SafeRoom skips certificates that are expired or not yet valid. If more than one certificate matches, it takes the one that expires last. This rule also applies to `Auth`.
 
 A slow or failed event server never changes or delays a DNS answer. Event failures do not change the health state. `SafeRoom --status` shows them under `events`.
 
@@ -131,7 +151,7 @@ A slow or failed event server never changes or delays a DNS answer. Event failur
 3. SafeRoom downloads `ListURL`. If a list is loaded and no hash file is set, the request carries `If-None-Match` and `If-Modified-Since`, and an unchanged list costs a `304` reply.
 4. SafeRoom applies these rules to a new list, in this order: HTTP status 200, size limit, SHA-256 match, not empty, and the `MaxChangePercent` limit.
 5. If the list passes, SafeRoom installs it and writes a new cache. If it fails, SafeRoom keeps the current list and logs the reason.
-6. After a success, SafeRoom waits `RefreshSeconds`. After a failure, it retries after 1 minute, then 2, 4, 8, and so on, up to `RefreshSeconds`.
+6. After a success, SafeRoom waits `RefreshSeconds`. After a failure, it retries after 1 minute, then 2, 4, 8, and so on, up to `RefreshSeconds`. Each retry wait is longer or shorter by up to a quarter, at random.
 
 With `RefreshSeconds` at 300, `STALE` starts after 15 minutes with no successful check, for example on a Mac with no network.
 

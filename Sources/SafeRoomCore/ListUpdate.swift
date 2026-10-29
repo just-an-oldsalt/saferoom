@@ -165,3 +165,10 @@ public func retryDelay(afterFailures failures: Int, refresh: Duration) -> Durati
     let minutes = 1 << min(max(failures - 1, 0), 10)
     return min(.seconds(60 * minutes), refresh)
 }
+
+/// Spreads a delay by up to `fraction` either way. After an outage, every Mac
+/// fails at the same moment; without this, they all retry in step too.
+/// `unit` is a random number in 0...1, a parameter for the tests.
+public func jittered(_ delay: Duration, by fraction: Double = 0.25, unit: Double = .random(in: 0...1)) -> Duration {
+    delay * (1 + fraction * (2 * unit - 1))
+}

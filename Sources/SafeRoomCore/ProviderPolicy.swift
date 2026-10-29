@@ -42,6 +42,10 @@ public struct ProviderPolicy: Sendable, Equatable {
     /// Time between event posts. A post also goes out early when a full
     /// batch is waiting.
     public var eventInterval: Duration = .seconds(10)
+    /// `EventServerPins`, decoded. Nil when the key is absent: the system
+    /// trust check applies. Empty when the key is present but holds no
+    /// usable pin: every post is refused (`ServerPins`).
+    public var eventServerPins: [Data]?
     /// True when the SafeRoom app wrote this policy (`ConfiguredBy = app`),
     /// not an MDM profile. Only the app's window reads it, to decide whether
     /// the user may edit the policy (`ConfigurationAccess`).
@@ -90,6 +94,7 @@ public struct ProviderPolicy: Sendable, Equatable {
         }
         auth = Self.auth(config["Auth"])
         eventAuth = Self.auth(config["EventAuth"])
+        if let value = config["EventServerPins"] { eventServerPins = pins("EventServerPins", value) }
         allowTopLevelBlocks = config["AllowTopLevelBlocks"] as? Bool ?? false
         configuredByApp = config[Self.configuredByKey] as? String == Self.configuredByApp
     }
@@ -163,6 +168,21 @@ public struct ProviderPolicy: Sendable, Equatable {
                 ignored.append("\(key) entry \"\(text)\": \(error.reason)")
                 return nil
             }
+        }
+    }
+
+    /// Pins are public values, so the bad ones are logged in full.
+    private mutating func pins(_ key: String, _ value: Any) -> [Data] {
+        guard let items = value as? [Any] else {
+            ignored.append("\(key): must be an array of strings")
+            return []
+        }
+        return items.compactMap { item in
+            guard let text = item as? String, let pin = ServerPins.parse(text) else {
+                ignored.append("\(key) entry \"\(item)\": not the base64 of a SHA-256")
+                return nil
+            }
+            return pin
         }
     }
 

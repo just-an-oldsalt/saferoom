@@ -82,7 +82,7 @@ final class StatusMonitor {
             updatedAt = Date()
         case .success(nil):
             status = nil
-            problem = "The extension is running, but the DNS proxy is not started."
+            problem = ControlChannel.proxyNotStarted
         case .failure(let error):
             status = nil
             problem = "The extension does not answer: \(error.localizedDescription)"

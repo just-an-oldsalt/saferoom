@@ -106,6 +106,13 @@ private let fiftyPercent: ProviderPolicy = {
     #expect(retryDelay(afterFailures: 20, refresh: hour) == hour)
 }
 
+@Test func jitterStaysWithinAQuarter() {
+    let minute = Duration.seconds(60)
+    #expect(jittered(minute, unit: 0) == .seconds(45))
+    #expect(jittered(minute, unit: 0.5) == minute)
+    #expect(jittered(minute, unit: 1) == .seconds(75))
+}
+
 @Test func fetchStateDecodesOlderFile() throws {
     let old = Data(#"{"url":"https://x.example/list","etag":"\"abc\""}"#.utf8)
     let state = try JSONDecoder().decode(FetchState.self, from: old)

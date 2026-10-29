@@ -17,4 +17,12 @@ public enum ControlChannel {
     public static var machServiceName: String { Identity.current.machServiceName }
     public static var appRequirement: String { Identity.current.appRequirement }
     public static var extensionRequirement: String { Identity.current.extensionRequirement }
+
+    /// The extension answers, but no proxy runs. Under MDM, the usual cause
+    /// is a payload that macOS refuses, and only `nesessionmanager` logs why.
+    public static let proxyNotStarted = """
+        The extension is running, but the DNS proxy is not started. If MDM installs SafeRoom, \
+        make sure that the DNS Proxy payload has ProviderDesignatedRequirement \
+        (docs/mdm.md, "Deploy with Jamf Pro").
+        """
 }

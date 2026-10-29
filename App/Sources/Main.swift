@@ -31,15 +31,15 @@ enum Main {
 
 enum CommandLineTool {
     static func status(refresh: Bool) -> Int32 {
-        switch ControlClient.fetchBlocking(refresh: refresh) {
+        switch fetch(refresh: refresh) {
         case .success(let status?):
             print(String(decoding: (try? ExtensionStatus.encoder.encode(status)) ?? Data(), as: UTF8.self))
             return 0
         case .success(nil):
-            printError("the extension is running, but the proxy is not started")
+            printError(ControlChannel.proxyNotStarted)
             return 2
         case .failure(let error):
-            printError("cannot reach the SafeRoom extension: \(error.localizedDescription)")
+            printError("cannot reach the SafeRoom extension: \(error.localizedDescription). If the extension is restarting, try again in a minute.")
             return 1
         }
     }
@@ -47,9 +47,9 @@ enum CommandLineTool {
     /// Always exits 0: Jamf records the printed line, not the exit code.
     static func jamf() -> Int32 {
         let line: String
-        switch ControlClient.fetchBlocking(refresh: false) {
+        switch fetch(refresh: false) {
         case .success(let status?): line = status.healthLine()
-        case .success(nil): line = "NOT RUNNING: the proxy is not started"
+        case .success(nil): line = "NOT RUNNING: the proxy is not started (check ProviderDesignatedRequirement)"
         case .failure: line = "NOT RUNNING: the extension does not answer"
         }
         print("<result>\(line)</result>")
@@ -67,6 +67,20 @@ enum CommandLineTool {
         }
         print("saferoom: \(activator.message)")
         return activator.result ?? 1
+    }
+
+    /// While the extension restarts, the connection fails at once with
+    /// "Couldn't communicate with a helper application". Try again for about
+    /// five seconds before giving up. A timeout is not retried: it already
+    /// took 15 seconds.
+    private static func fetch(refresh: Bool) -> ControlClient.Outcome {
+        var outcome = ControlClient.fetchBlocking(refresh: refresh)
+        for _ in 0..<5 {
+            guard case .failure(let error) = outcome, !(error is ControlClient.ClientError) else { break }
+            Thread.sleep(forTimeInterval: 1)
+            outcome = ControlClient.fetchBlocking(refresh: refresh)
+        }
+        return outcome
     }
 
     private static func printError(_ text: String) {

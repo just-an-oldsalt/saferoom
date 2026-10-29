@@ -68,7 +68,7 @@ actor ListLoader {
             state.lastSuccessAt = Date()
             Self.saveFetchState(state)
         }
-        let delay = ok ? policy.refreshInterval : retryDelay(afterFailures: failures, refresh: policy.refreshInterval)
+        let delay = ok ? policy.refreshInterval : jittered(retryDelay(afterFailures: failures, refresh: policy.refreshInterval))
         if !ok { Log.list.notice("retrying in \(delay.components.seconds)s (failure \(self.failures))") }
         nextRefreshAt = Date().addingTimeInterval(TimeInterval(delay.components.seconds))
         return delay
