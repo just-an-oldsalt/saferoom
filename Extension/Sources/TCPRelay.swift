@@ -113,7 +113,12 @@ final class TCPRelay: @unchecked Sendable {
                     }
                 }
             }
-            if isComplete || error != nil { return close() }
+            // Close only after the answers above reach the client: the
+            // upstream often sends its last answer and its FIN together.
+            if isComplete || error != nil {
+                pending.notify(queue: queue) { [self] in close() }
+                return
+            }
             pending.notify(queue: queue) { [self] in readFromUpstream() }
         }
     }

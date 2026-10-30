@@ -74,10 +74,15 @@ final class UpstreamPool: @unchecked Sendable {
 
     func send(_ query: [UInt8], to endpoint: NWEndpoint, deliver: @escaping Deliver) {
         queue.async { [self] in
+            // The multiplexer matches answers by question, so a query whose
+            // question it cannot read (DNS UPDATE, several questions) goes
+            // on its own socket. Fail-open: never drop what the codec does
+            // not understand.
+            guard QueryMultiplexer<Deliver>.canMatch(query) else { return sendAlone(query, to: endpoint, deliver: deliver) }
             let upstream = upstream(for: endpoint)
             guard let packet = upstream.mux.register(query, context: deliver) else {
-                // Unreadable question, or 8,192 queries pending on this
-                // resolver. Dropping it lets the client retry.
+                // 8,192 queries pending on this resolver. Dropping it lets
+                // the client retry.
                 Log.flow.error("upstream \(String(describing: endpoint), privacy: .public): query not sent (\(upstream.mux.count) pending)")
                 return
             }
@@ -145,8 +150,55 @@ final class UpstreamPool: @unchecked Sendable {
             // An answer that matches nothing (late, duplicate, or forged) is
             // dropped silently. A retiring connection keeps receiving until
             // it closes.
-            if error == nil, !upstream.closed { receive(upstream) }
+            guard !upstream.closed else { return }
+            // A receive error ends this receive loop. Without a close, the
+            // connection would stay in use with nobody reading it, and every
+            // query to this resolver would time out until it aged out.
+            if let error {
+                Log.flow.error("udp upstream \(String(describing: upstream.endpoint), privacy: .public) receive failed: \(error.localizedDescription, privacy: .public)")
+                return close(upstream)
+            }
+            receive(upstream)
         }
+    }
+
+    /// One-shot sockets in flight, capped so that a flood of odd packets
+    /// cannot open thousands of sockets.
+    private var aloneInFlight = 0
+    static let maxAlone = 64
+
+    /// Sends one query on its own UDP socket and delivers the first answer.
+    private func sendAlone(_ query: [UInt8], to endpoint: NWEndpoint, deliver: @escaping Deliver) {
+        guard aloneInFlight < Self.maxAlone else {
+            Log.flow.error("upstream \(String(describing: endpoint), privacy: .public): unmatched query not sent, \(Self.maxAlone) in flight")
+            return
+        }
+        aloneInFlight += 1
+        let shot = OneShot(connection: NWConnection(to: endpoint, using: .udp))
+        shot.connection.stateUpdateHandler = { [self] state in
+            if case .failed = state { finish(shot) }
+        }
+        shot.connection.start(queue: queue)
+        shot.connection.send(content: Data(query), completion: .contentProcessed { _ in })
+        shot.connection.receiveMessage { [self] data, _, _, _ in
+            if !shot.done, let data, !data.isEmpty { deliver([UInt8](data)) }
+            finish(shot)
+        }
+        queue.asyncAfter(deadline: .now() + 10) { [self] in finish(shot) }
+    }
+
+    /// Touched only on the pool's queue, like the pool itself.
+    private final class OneShot: @unchecked Sendable {
+        let connection: NWConnection
+        var done = false
+        init(connection: NWConnection) { self.connection = connection }
+    }
+
+    private func finish(_ shot: OneShot) {
+        guard !shot.done else { return }
+        shot.done = true
+        aloneInFlight -= 1
+        shot.connection.cancel()
     }
 
     /// New queries go to a new connection. This one stays open for the
