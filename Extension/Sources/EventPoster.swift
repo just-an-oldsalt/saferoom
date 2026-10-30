@@ -38,6 +38,8 @@ actor EventPoster {
     private var failures = 0
     private var lastPostAt: Date?
     private var lastError: String?
+    /// True while a batch is out of the buffer and on its way.
+    private var posting = false
 
     init?(policy: ProviderPolicy, buffer: EventBuffer, version: String) {
         guard let url = policy.eventURL else { return nil }
@@ -62,12 +64,20 @@ actor EventPoster {
     /// in memory only, so an upgrade or a restart otherwise throws it away.
     /// Gives up after `limit`.
     func stop(flushWithin limit: Duration) async {
+        let deadline = ContinuousClock.now + limit
+        // A post in flight has taken its batch out of the buffer. Cancelled,
+        // its events would be put back after the buffer is turned off, or
+        // posted a second time by the flush below. Let it finish first.
+        while posting, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
         stop()
-        guard buffer.count > 0 else { return }
-        let timeout = TimeInterval(limit.components.seconds)
+        let left = deadline - .now
+        guard buffer.count > 0, left > .milliseconds(100) else { return }
+        let timeout = Double(left.components.seconds) + Double(left.components.attoseconds) / 1e18
         await withTaskGroup(of: Void.self) { group in
             group.addTask { await self.flush(timeout: timeout) }
-            group.addTask { try? await Task.sleep(for: limit) }
+            group.addTask { try? await Task.sleep(for: left) }
             await group.next()
             group.cancelAll()
         }
@@ -112,7 +122,10 @@ actor EventPoster {
             let (events, dropped) = buffer.take(Self.batchSize)
             guard !events.isEmpty || dropped > 0 else { return }
             let batch = EventBatch(device: device, dropped: dropped, events: events)
-            if let error = await post(batch, timeout: timeout) {
+            posting = true
+            let error = await post(batch, timeout: timeout)
+            posting = false
+            if let error {
                 buffer.putBack(events, dropped: dropped)
                 failures += 1
                 lastError = error
@@ -175,7 +188,7 @@ actor EventPoster {
             ]
             guard tlsCodes.contains(urlError.code) else { return text }
             if delegate.pinAccepted, !delegate.presentedClientCertificate {
-                return "the server key matched a pin, but a second trust check (App Transport Security) refused the server: \(text)"
+                return "the server key matched a pin, but TLS still failed after the pin check: \(text)"
             }
             if delegate.presentedClientCertificate {
                 return "the server refused the client certificate, or the handshake failed after it was sent: \(text)"

@@ -11,6 +11,7 @@
 #
 # The first word is the state, for smart groups:
 #   OK            a list is loaded and the last check succeeded
+#   MONITOR       as OK, but MonitorOnly is on: nothing is blocked
 #   DEGRADED      recent checks failed; the list in use is not stale yet
 #   STALE         no successful check for 3 refresh intervals
 #   NO LIST       no list is loaded; every query passes (fail-open)

@@ -87,6 +87,11 @@ xcodebuild archive -quiet \
 
 echo "==> sign with $IDENTITY"
 ditto "$ARCHIVE/Products/Applications/SafeRoom.app" "$APP"
+# package.sh refuses an app with this marker. It goes in before the
+# re-sign, so the signature seals it.
+if [[ "${DEV_CONTROLS:-0}" == 1 ]]; then
+    /usr/libexec/PlistBuddy -c "Add :SafeRoomDevControls bool true" "$APP/Contents/Info.plist"
+fi
 resign "$SYSEXT" "$(profile_named "Mac Team Direct Provisioning Profile: $EXT_ID")"
 resign "$APP" "$(profile_named "Mac Team Direct Provisioning Profile: $APP_ID")"
 codesign --verify --deep --strict "$APP"

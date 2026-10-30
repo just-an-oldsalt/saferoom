@@ -31,6 +31,11 @@ BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP/Contents/Info.
 PKG="$OUT/SafeRoom-$VERSION-$BUILD.pkg"
 
 [[ -d "$APP" ]] || { echo "no $APP: run tools/release.sh first" >&2; exit 1; }
+if /usr/libexec/PlistBuddy -c "Print :SafeRoomDevControls" "$APP/Contents/Info.plist" >/dev/null 2>&1; then
+    echo "$APP is a DEV_CONTROLS build: a user could turn the proxy off from its window." >&2
+    echo "Run tools/release.sh without DEV_CONTROLS=1, then package again." >&2
+    exit 1
+fi
 
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT

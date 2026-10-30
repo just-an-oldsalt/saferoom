@@ -65,6 +65,6 @@ private func status(
 @Test func healthLineSaysMonitorOnly() {
     var s = status(failures: 0)
     s.policy.monitorOnly = true
-    #expect(s.healthLine(now: start.addingTimeInterval(60)).contains("MONITOR ONLY"))
+    #expect(s.healthLine(now: start.addingTimeInterval(60)).hasPrefix("MONITOR: "))
     #expect(!status(failures: 0).healthLine(now: start.addingTimeInterval(60)).contains("MONITOR"))
 }

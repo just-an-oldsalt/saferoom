@@ -126,7 +126,7 @@ This is an example of a request body:
 
 The server must reply with a status from 200 to 299. SafeRoom does not read the reply body. If a request fails, SafeRoom keeps the events and tries again after 1 minute, then 2, 4, 8, and so on, up to 10 minutes. Each wait is longer or shorter by up to a quarter, at random, so that a fleet of Macs does not retry at the same moment after an outage. SafeRoom never follows a redirect from `EventURL`.
 
-SafeRoom keeps at most 10,000 events in memory. If more are waiting, for example while the server is down, SafeRoom drops the oldest tenth and counts them in `dropped`. Events are not written to disk. When the proxy stops, for example for an upgrade, SafeRoom makes one last request with the waiting events and waits at most 2 seconds for it. If that request fails, the events are lost.
+SafeRoom keeps at most 10,000 events in memory. If more are waiting, for example while the server is down, SafeRoom drops the oldest tenth and counts them in `dropped`. Events are not written to disk. When the proxy stops, for example for an upgrade, SafeRoom lets a request in progress finish, then makes one last request with the waiting events. Both together get at most 2 seconds. If that request fails, the events are lost.
 
 ### Monitor mode
 
@@ -135,7 +135,7 @@ With `MonitorOnly` set to `true`, SafeRoom blocks nothing. It checks each answer
 - SafeRoom reports each such lookup once, when the answer comes back. A lookup with no answer, for example because the resolver timed out, is not reported.
 - The allow list and the never-block set apply, as when SafeRoom blocks.
 - SafeRoom does not learn names from listed addresses in monitor mode (docs/list-format.md). An AAAA lookup for a host listed only by its IPv4 address is therefore not reported.
-- The window shows "Monitoring only". `SafeRoom --jamf` adds "MONITOR ONLY, nothing is blocked" to its line, and `SafeRoom --status` shows `policy.monitorOnly` and `counters.wouldBlock`.
+- The window shows "Monitoring only". `SafeRoom --jamf` starts its line with `MONITOR` instead of `OK`, so a Mac that blocks nothing stays out of an "OK" smart group, and `SafeRoom --status` shows `policy.monitorOnly` and `counters.wouldBlock`.
 
 `blocked` events and `block` log lines do not appear in monitor mode, so a SIEM rule that alerts on them stays quiet. Write a separate rule for `wouldBlock` if you want one.
 
@@ -207,6 +207,7 @@ To report SafeRoom health in Jamf inventory, add the rendered copy of [`mdm/jamf
 | State | Meaning |
 |---|---|
 | `OK` | A list is loaded, and the last check succeeded. |
+| `MONITOR` | As `OK`, but `MonitorOnly` is on: nothing is blocked. If the list also has a problem, the line starts with that state and then says "MONITOR ONLY". |
 | `DEGRADED` | Recent checks failed. The list in use is not stale yet. With a hash file, a short `DEGRADED` period after a new list is published is normal. See [How SafeRoom updates the list](#how-saferoom-updates-the-list). |
 | `STALE` | No check succeeded for three refresh intervals. |
 | `NO LIST` | No list is loaded. Every query passes. |

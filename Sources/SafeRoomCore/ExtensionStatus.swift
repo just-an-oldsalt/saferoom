@@ -184,9 +184,12 @@ extension ExtensionStatus {
         if consecutiveFailures > 0, let lastAttempt {
             parts.append("\(consecutiveFailures) failed: \(lastAttempt.detail ?? lastAttempt.result.rawValue)")
         }
-        if policy.monitorOnly == true { parts.append("MONITOR ONLY, nothing is blocked") }
         parts.append("version \(version)")
-        return "\(health.rawValue): \(parts.joined(separator: ", "))"
+        // A Mac that blocks nothing must not land in the OK smart group. A
+        // list problem keeps its own word: it is the one to fix first.
+        let state = policy.monitorOnly == true && health == .ok ? "MONITOR" : health.rawValue
+        if policy.monitorOnly == true, health != .ok { parts.insert("MONITOR ONLY", at: 0) }
+        return "\(state): \(parts.joined(separator: ", "))"
     }
 
     static func stamp(_ date: Date) -> String {

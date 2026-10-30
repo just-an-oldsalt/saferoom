@@ -107,7 +107,7 @@ The behavior on a managed Mac whose app has not seen the MDM configuration yet i
 
 A token saved in the app has the same problem as a token in a profile: any local user can read it.
 
-A development build also has buttons that turn the proxy on and off on any Mac, and a `-TestPolicy` launch argument that replaces the policy. A fleet build has neither. `make release` builds a fleet build. `make release DEV_CONTROLS=1` builds a development build. Never deploy a development build to a fleet.
+A development build also has buttons that turn the proxy on and off on any Mac, and a `-TestPolicy` launch argument that replaces the policy. A fleet build has neither. `make release` builds a fleet build. `make release DEV_CONTROLS=1` builds a development build, marked with `SafeRoomDevControls` in its Info.plist, and `make package` refuses to package it. Never deploy a development build to a fleet.
 
 ## Privacy
 
