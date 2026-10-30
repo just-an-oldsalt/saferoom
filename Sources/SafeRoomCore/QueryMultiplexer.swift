@@ -54,9 +54,7 @@ public struct QueryMultiplexer<Context> {
               response[2] & 0x80 != 0  // QR: it must be a response
         else { return nil }
         let id = UInt16(response[0]) << 8 | UInt16(response[1])
-        guard let entry = pending[id],
-              Self.questionKey(response) == entry.question || Self.isBareError(response)
-        else { return nil }
+        guard let entry = pending[id], Self.questionKey(response) == entry.question else { return nil }
         pending[id] = nil
         var out = response
         out[0] = UInt8(entry.originalID >> 8)
@@ -78,16 +76,6 @@ public struct QueryMultiplexer<Context> {
     /// cannot match must still be forwarded, on its own socket.
     public static func canMatch(_ query: [UInt8]) -> Bool { questionKey(query) != nil }
 
-    /// An error answer with no question and no records, as some resolvers
-    /// send for FORMERR, NOTIMP or REFUSED. Matched by ID alone, so the
-    /// client fails fast instead of waiting for its retry. It carries no
-    /// records, so a forged one can only fail a lookup, never redirect it.
-    static func isBareError(_ packet: [UInt8]) -> Bool {
-        guard packet.count >= DNSMessage.headerSize else { return false }
-        let rcode = packet[3] & 0x0F
-        let counts = packet[4..<12]
-        return rcode != 0 && counts.allSatisfy { $0 == 0 }
-    }
 
     /// Lowercased name, type, and class of the first question. Resolvers may
     /// echo the name in another case (0x20 encoding), so case is ignored.

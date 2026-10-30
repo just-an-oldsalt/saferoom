@@ -73,7 +73,10 @@ actor EventPoster {
         }
         stop()
         let left = deadline - .now
-        guard buffer.count > 0, left > .milliseconds(100) else { return }
+        guard buffer.count > 0 else { return }
+        guard left > .milliseconds(100) else {
+            return Log.event.notice("stopping with \(self.buffer.count) events not posted")
+        }
         let timeout = Double(left.components.seconds) + Double(left.components.attoseconds) / 1e18
         await withTaskGroup(of: Void.self) { group in
             group.addTask { await self.flush(timeout: timeout) }
