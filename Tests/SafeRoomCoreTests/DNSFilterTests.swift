@@ -141,3 +141,65 @@ private let list = makeFilter()
     p += [3] + Array("a.b".utf8) + [0, 0, 16, 0, 1, 0, 0, 0, 60, 0, 1, 0]
     guard case .block = makeFilter().decide(response: p) else { Issue.record("passed"); return }
 }
+
+// MARK: - Monitor mode
+
+@Test func monitorForwardsListedQueries() {
+    let filter = makeFilter()
+    filter.configure(monitorOnly: true, reportAllQueries: false)
+    #expect(filter.decide(query: query("a.evil.com", type: 28)) == .forward)
+    // The answer reports it once, as the query name with its type.
+    guard case .monitor(let name, let type, let reason) = filter.decide(response: response("a.evil.com", a: [192, 0, 2, 1])) else {
+        Issue.record("not monitored"); return
+    }
+    #expect(name == "a.evil.com")
+    #expect(type == 1)
+    let event = BlockEvent(wouldBlock: name, type: type, reason: reason, app: "app", transport: "udp")
+    #expect(event.kind == .query)
+    #expect(event.action == .wouldBlock)
+    #expect(event.rule == "evil.com")
+    #expect(filter.counters.values.wouldBlock == 1)
+    #expect(filter.counters.values.blockedAnswers == 0)
+}
+
+@Test func monitorPassesListedAddressesWithoutLearning() {
+    let filter = makeFilter()
+    filter.configure(monitorOnly: true, reportAllQueries: false)
+    guard case .monitor(_, _, .address(let address)) = filter.decide(response: response("shady.org", a: [198, 51, 100, 7])) else {
+        Issue.record("not monitored"); return
+    }
+    #expect(address.description == "198.51.100.7")
+    // Nothing learned, so the next query is not blocked either.
+    #expect(filter.decide(query: query("shady.org", type: 28)) == .forward)
+    let event = BlockEvent(wouldBlock: "shady.org", type: 1, reason: .address(address), app: "app", transport: "udp")
+    #expect(event.kind == .answer)
+    #expect(event.action == .wouldBlock)
+}
+
+@Test func monitorKeepsAllowList() {
+    let filter = makeFilter()
+    filter.configure(monitorOnly: true, reportAllQueries: false)
+    #expect(filter.decide(response: response("www.partner.com", a: [198, 51, 100, 7])) == .pass)
+}
+
+@Test func blockingResumesWhenMonitorIsOff() {
+    let filter = makeFilter()
+    filter.configure(monitorOnly: true, reportAllQueries: false)
+    filter.configure(monitorOnly: false, reportAllQueries: false)
+    guard case .block = filter.decide(query: query("a.evil.com")) else { Issue.record("not blocked"); return }
+}
+
+// MARK: - All queries
+
+@Test func allowedEventCarriesTheAnswer() throws {
+    let event = try #require(BlockEvent(allowed: response("www.example.org", alias: "edge.example.net", a: [192, 0, 2, 1]),
+                                        app: "com.example.app", transport: "tcp"))
+    #expect(event.kind == .query)
+    #expect(event.action == .allowed)
+    #expect(event.name == "www.example.org")
+    #expect(event.type == 1)
+    #expect(event.addresses == ["192.0.2.1"])
+    #expect(event.aliases == ["edge.example.net"])
+    #expect(event.rule == nil)
+    #expect(BlockEvent(allowed: query("www.example.org"), app: "a", transport: "udp") == nil)
+}

@@ -46,6 +46,12 @@ public struct ProviderPolicy: Sendable, Equatable {
     /// trust check applies. Empty when the key is present but holds no
     /// usable pin: every post is refused (`ServerPins`).
     public var eventServerPins: [Data]?
+    /// `EventAllQueries`: every answered lookup goes to `eventURL`, not only
+    /// blocks. Needs `eventURL`.
+    public var eventAllQueries = false
+    /// `MonitorOnly`: block nothing, and report what would have been
+    /// blocked. For a trial of a new list or a first rollout.
+    public var monitorOnly = false
     /// True when the SafeRoom app wrote this policy (`ConfiguredBy = app`),
     /// not an MDM profile. Only the app's window reads it, to decide whether
     /// the user may edit the policy (`ConfigurationAccess`).
@@ -96,6 +102,9 @@ public struct ProviderPolicy: Sendable, Equatable {
         eventAuth = Self.auth(config["EventAuth"])
         if let value = config["EventServerPins"] { eventServerPins = pins("EventServerPins", value) }
         allowTopLevelBlocks = config["AllowTopLevelBlocks"] as? Bool ?? false
+        eventAllQueries = bool("EventAllQueries", config)
+        monitorOnly = bool("MonitorOnly", config)
+        if eventAllQueries, eventURL == nil { ignored.append("EventAllQueries: needs EventURL") }
         configuredByApp = config[Self.configuredByKey] as? String == Self.configuredByApp
     }
 
@@ -169,6 +178,16 @@ public struct ProviderPolicy: Sendable, Equatable {
                 return nil
             }
         }
+    }
+
+    /// A wrong type is logged, not silently read as false: `MonitorOnly`
+    /// written as the string "true" must not leave a Mac blocking when the
+    /// admin meant to monitor, or the reverse.
+    private mutating func bool(_ key: String, _ config: [String: Any]) -> Bool {
+        guard let value = config[key] else { return false }
+        if let flag = value as? Bool { return flag }
+        ignored.append("\(key): must be a boolean")
+        return false
     }
 
     /// Pins are public values, so the bad ones are logged in full.

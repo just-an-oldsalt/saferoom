@@ -54,6 +54,10 @@ public struct ExtensionStatus: Codable, Sendable, Equatable {
         public var eventServerPins: Int?
         /// "app" when the SafeRoom app wrote the policy, nil for MDM.
         public var configuredBy: String?
+        /// True in monitor mode: nothing is blocked. Nil otherwise.
+        public var monitorOnly: Bool?
+        /// True when every answered lookup goes to the event URL. Nil otherwise.
+        public var eventAllQueries: Bool?
     }
 
     public struct ListSummary: Codable, Sendable, Equatable {
@@ -91,6 +95,9 @@ public struct ExtensionStatus: Codable, Sendable, Equatable {
         public var blockedQueries = 0
         public var blockedAnswers = 0
         public var learnedBlocks = 0
+        /// Lookups that monitor mode let through but would have blocked.
+        /// Optional, so a status from an older extension still decodes.
+        public var wouldBlock: Int?
 
         public init() {}
     }
@@ -110,7 +117,9 @@ extension ExtensionStatus.PolicySummary {
             eventURL: policy.eventURL.map(Self.redacted),
             eventAuth: policy.eventURL != nil ? policy.eventAuth.description : nil,
             eventServerPins: policy.eventURL != nil ? policy.eventServerPins?.count : nil,
-            configuredBy: policy.configuredByApp ? ProviderPolicy.configuredByApp : nil)
+            configuredBy: policy.configuredByApp ? ProviderPolicy.configuredByApp : nil,
+            monitorOnly: policy.monitorOnly ? true : nil,
+            eventAllQueries: policy.eventURL != nil && policy.eventAllQueries ? true : nil)
     }
 
     public static func redacted(_ url: URL) -> String {
@@ -175,6 +184,7 @@ extension ExtensionStatus {
         if consecutiveFailures > 0, let lastAttempt {
             parts.append("\(consecutiveFailures) failed: \(lastAttempt.detail ?? lastAttempt.result.rawValue)")
         }
+        if policy.monitorOnly == true { parts.append("MONITOR ONLY, nothing is blocked") }
         parts.append("version \(version)")
         return "\(health.rawValue): \(parts.joined(separator: ", "))"
     }
@@ -206,6 +216,7 @@ public final class FilterCounters: Sendable {
     let blockedQueries = Atomic<Int>(0)
     let blockedAnswers = Atomic<Int>(0)
     let learnedBlocks = Atomic<Int>(0)
+    let wouldBlock = Atomic<Int>(0)
 
     public init() {}
 
@@ -215,6 +226,8 @@ public final class FilterCounters: Sendable {
         v.blockedQueries = blockedQueries.load(ordering: .relaxed)
         v.blockedAnswers = blockedAnswers.load(ordering: .relaxed)
         v.learnedBlocks = learnedBlocks.load(ordering: .relaxed)
+        let would = wouldBlock.load(ordering: .relaxed)
+        v.wouldBlock = would > 0 ? would : nil
         return v
     }
 }

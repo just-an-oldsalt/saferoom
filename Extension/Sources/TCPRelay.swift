@@ -97,11 +97,19 @@ final class TCPRelay: @unchecked Sendable {
                 for message in fromUpstream.push(data) {
                     switch filter.decide(response: message) {
                     case .pass:
+                        if filter.reportsAllQueries,
+                           let event = BlockEvent(allowed: message, app: app, transport: "tcp") {
+                            events.add(event)
+                        }
                         writeToClient(message, pending)
                     case .block(let reply, let name, let reason):
                         Log.blockedResponse(name: name, reason: reason, app: app, transport: "tcp")
                         events.add(.init(answer: name, reason: reason, app: app, transport: "tcp"))
                         writeToClient(reply, pending)
+                    case .monitor(let name, let type, let reason):
+                        Log.wouldBlock(name: name, reason: reason, app: app, transport: "tcp")
+                        events.add(.init(wouldBlock: name, type: type, reason: reason, app: app, transport: "tcp"))
+                        writeToClient(message, pending)
                     }
                 }
             }

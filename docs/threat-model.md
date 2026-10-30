@@ -111,7 +111,7 @@ A development build also has buttons that turn the proxy on and off on any Mac, 
 
 ## Privacy
 
-SafeRoom logs only blocked lookups. It does not log the other lookups. The log entries are public in the unified log, so that an EDR or a log forwarder can collect them. Any administrator on the Mac can read them.
+SafeRoom logs only blocked lookups, or in monitor mode the lookups that it would have blocked. It does not log the other lookups. With `EventAllQueries`, it sends every answered lookup to the event server: a full record of the names that each Mac looks up, with the app that asked. Only the event server receives them, not the unified log. The log entries are public in the unified log, so that an EDR or a log forwarder can collect them. Any administrator on the Mac can read them.
 
 ## Supply chain
 

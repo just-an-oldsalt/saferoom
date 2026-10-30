@@ -35,7 +35,17 @@ enum Log {
             "blocked query name=\(name, privacy: .public) type=\(type, privacy: .public) rule=\(rule, privacy: .public) app=\(app, privacy: .public) via=\(transport, privacy: .public)")
     }
 
+    /// Monitor mode. The verb differs from a block, so a SIEM rule that
+    /// alerts on "blocked" does not fire for a lookup that went through.
+    static func wouldBlock(name: String, reason: DNSFilter.Reason, app: String, transport: String) {
+        response("would block", name: name, reason: reason, app: app, transport: transport)
+    }
+
     static func blockedResponse(name: String, reason: DNSFilter.Reason, app: String, transport: String) {
+        response("blocked answer", name: name, reason: reason, app: app, transport: transport)
+    }
+
+    private static func response(_ verb: String, name: String, reason: DNSFilter.Reason, app: String, transport: String) {
         let name = clean(name), app = clean(app)
         let detail: String
         switch reason {
@@ -43,6 +53,6 @@ enum Log {
         case .address(let address): detail = "address=\(address.description)"
         }
         block.notice(
-            "blocked answer name=\(name, privacy: .public) \(detail, privacy: .public) app=\(app, privacy: .public) via=\(transport, privacy: .public)")
+            "\(verb, privacy: .public) name=\(name, privacy: .public) \(detail, privacy: .public) app=\(app, privacy: .public) via=\(transport, privacy: .public)")
     }
 }

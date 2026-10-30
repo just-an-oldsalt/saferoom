@@ -138,3 +138,31 @@ private extension JSONDecoder {
         return d
     }
 }
+
+@Test func eventJSONNamesTheAction() throws {
+    let batch = EventBatch(device: .init(hostname: "h", serialNumber: nil, version: "1"), dropped: 0, events: [event("a.example")])
+    let json = String(decoding: try EventBatch.encoder.encode(batch), as: UTF8.self)
+    #expect(json.contains(#""action":"blocked""#))
+    #expect(!json.contains("addresses"))
+}
+
+@Test func modeKeys() {
+    let p = ProviderPolicy([
+        "EventURL": "https://events.example.com/e", "EventAllQueries": true, "MonitorOnly": true,
+    ])
+    #expect(p.eventAllQueries)
+    #expect(p.monitorOnly)
+    let summary = ExtensionStatus.PolicySummary(p)
+    #expect(summary.monitorOnly == true)
+    #expect(summary.eventAllQueries == true)
+    #expect(ProviderPolicy().monitorOnly == false)
+    #expect(ExtensionStatus.PolicySummary(ProviderPolicy()).monitorOnly == nil)
+}
+
+@Test func modeKeysRefuseWrongTypes() {
+    let p = ProviderPolicy(["MonitorOnly": "true", "EventAllQueries": true])
+    #expect(!p.monitorOnly)
+    #expect(p.ignored.contains("MonitorOnly: must be a boolean"))
+    #expect(p.ignored.contains("EventAllQueries: needs EventURL"))
+    #expect(ExtensionStatus.PolicySummary(p).eventAllQueries == nil)
+}

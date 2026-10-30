@@ -59,6 +59,8 @@ To change the policy, edit the profile in Jamf. The extension reads the policy a
 | `EventURL` | string | none | HTTPS URL that receives block events as JSON POST requests. If it is not set, SafeRoom posts no events. See [Block events](#block-events). |
 | `EventAuth` | dictionary | none | How to authenticate to `EventURL`. Same form as `Auth`, with its own token. |
 | `EventIntervalSeconds` | integer | 10 | Time between event posts. The range is 1 to 3600. |
+| `EventAllQueries` | boolean | false | Sends every answered lookup to `EventURL`, not only blocks. Needs `EventURL`. See [All lookups](#all-lookups). |
+| `MonitorOnly` | boolean | false | Blocks nothing, and reports each lookup that SafeRoom would have blocked. See [Monitor mode](#monitor-mode). |
 | `EventServerPins` | array of strings | none | Pins for the `EventURL` server's key. If set, SafeRoom accepts the server only if its key matches a pin. See [Server pins](#server-pins). |
 
 `ListURL`, `ListSHA256URL`, and `EventURL` must use HTTPS. Plain HTTP works only for `localhost` and `127.0.0.1`, for tests.
@@ -82,9 +84,9 @@ SafeRoom also sends the token with the hash file download if the hash file is on
 
 ## Block events
 
-If `EventURL` is set, SafeRoom sends each blocked query and each blocked answer to that URL. The event has the same data as the line in the `block` log category.
+If `EventURL` is set, SafeRoom sends each blocked query and each blocked answer to that URL. The event has the same data as the line in the `block` log category. With `MonitorOnly`, it sends the lookups that it would have blocked. With `EventAllQueries`, it also sends every other answered lookup.
 
-SafeRoom collects the events in memory and sends them in batches. Every `EventIntervalSeconds`, it sends the events that are waiting, at most 500 in one request. The request is a `POST` with `Content-Type: application/json`. If `EventAuth` has the type `bearer`, the request carries `Authorization: Bearer <Token>`. The `clientCertificate` type also works, with the same keys as in `Auth`.
+SafeRoom collects the events in memory and sends them in batches. Every `EventIntervalSeconds`, it sends the events that are waiting, at most 500 in one request. If 500 events are waiting before the interval ends, SafeRoom sends them at once. The request is a `POST` with `Content-Type: application/json`. If `EventAuth` has the type `bearer`, the request carries `Authorization: Bearer <Token>`. The `clientCertificate` type also works, with the same keys as in `Auth`.
 
 This is an example of a request body:
 
@@ -110,18 +112,40 @@ This is an example of a request body:
 | `device.serialNumber` | The hardware serial number, the same as in the MDM inventory. Missing if SafeRoom cannot read it. |
 | `device.version` | The SafeRoom version and build. |
 | `dropped` | The number of events that SafeRoom lost since the previous request, because too many events were waiting. |
-| `kind` | `query` if the query name is on the list. `answer` if the upstream answer named a listed alias or address. |
+| `action` | `blocked` if SafeRoom answered NXDOMAIN. `wouldBlock` if `MonitorOnly` let the lookup through. `allowed` for a lookup that nothing on the list matched, sent only with `EventAllQueries`. |
+| `kind` | `query` if the query name is on the list, and for every `allowed` event. `answer` if the upstream answer named a listed alias or address. |
 | `name` | The name in the query. |
 | `type` | The DNS record type of the query, as a number. Only for `query`. |
 | `rule` | The list rule that matched. |
 | `alias` | The listed CNAME or SVCB target in the answer. |
 | `address` | The listed address in the answer. |
+| `addresses` | `allowed` only: every A, AAAA, and SVCB hint address in the answer. Missing if the answer has none, for example an NXDOMAIN from the resolver. |
+| `aliases` | `allowed` only: every CNAME and SVCB target in the answer. Missing if there are none. |
 | `app` | The code signing identifier of the app that asked. |
 | `transport` | `udp` or `tcp`. |
 
 The server must reply with a status from 200 to 299. SafeRoom does not read the reply body. If a request fails, SafeRoom keeps the events and tries again after 1 minute, then 2, 4, 8, and so on, up to 10 minutes. Each wait is longer or shorter by up to a quarter, at random, so that a fleet of Macs does not retry at the same moment after an outage. SafeRoom never follows a redirect from `EventURL`.
 
 SafeRoom keeps at most 10,000 events in memory. If more are waiting, for example while the server is down, SafeRoom drops the oldest tenth and counts them in `dropped`. Events are not written to disk. When the proxy stops, for example for an upgrade, SafeRoom makes one last request with the waiting events and waits at most 2 seconds for it. If that request fails, the events are lost.
+
+### Monitor mode
+
+With `MonitorOnly` set to `true`, SafeRoom blocks nothing. It checks each answer against the list, and it reports each lookup that it would have blocked: an event with `action` `wouldBlock`, and a `would block` line in the `block` log category. Use it to try a new list, or for a first rollout, before you turn blocking on.
+
+- SafeRoom reports each such lookup once, when the answer comes back. A lookup with no answer, for example because the resolver timed out, is not reported.
+- The allow list and the never-block set apply, as when SafeRoom blocks.
+- SafeRoom does not learn names from listed addresses in monitor mode (docs/list-format.md). An AAAA lookup for a host listed only by its IPv4 address is therefore not reported.
+- The window shows "Monitoring only". `SafeRoom --jamf` adds "MONITOR ONLY, nothing is blocked" to its line, and `SafeRoom --status` shows `policy.monitorOnly` and `counters.wouldBlock`.
+
+`blocked` events and `block` log lines do not appear in monitor mode, so a SIEM rule that alerts on them stays quiet. Write a separate rule for `wouldBlock` if you want one.
+
+### All lookups
+
+With `EventAllQueries` set to `true`, SafeRoom sends every answered lookup to `EventURL`, from every app, as an event with `action` `allowed`. The event holds the name, the record type, the addresses and aliases in the answer, and the app that asked. Blocked lookups keep their own events, so each lookup appears once. A lookup with no answer is not sent.
+
+This is many more events. A Mac in use makes several thousand lookups an hour. Size the server for that, and set `EventIntervalSeconds` to 60 or less, so that the 10,000-event buffer does not fill while the server is down. `events.dropped` in `SafeRoom --status` shows lost events.
+
+The events are a full record of the names that each Mac looks up. Treat them as you treat browser history. Allowed lookups are not written to the unified log.
 
 ### Server pins
 
@@ -206,6 +230,6 @@ log stream --predicate 'subsystem == "com.oldsalt.saferoom"'
 |---|---|
 | `provider` | Start, stop, and the policy in use. Each policy value that SafeRoom ignores, with the reason. The token and the URLs of ignored values are never logged. |
 | `list` | Downloads, rejections with the reason, and invalid lines. |
-| `block` | Each blocked query or answer, with the rule and the app that asked. |
+| `block` | Each blocked query or answer, with the rule and the app that asked. In monitor mode, each lookup that SafeRoom would have blocked, as a `would block` line. |
 | `flow` | Connection errors. |
 | `event` | Failed event posts, with the reason. |

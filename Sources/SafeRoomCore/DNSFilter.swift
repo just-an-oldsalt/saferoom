@@ -6,11 +6,26 @@ public final class DNSFilter: Sendable {
     public let store: BlocklistStore
     public let counters = FilterCounters()
     let learned: LearnedBlocks
+    private let monitorOnly = Atomic<Bool>(false)
+    private let reportAll = Atomic<Bool>(false)
 
     public init(store: BlocklistStore, learnedTTL: Duration = .seconds(300), learnedCapacity: Int = 10_000) {
         self.store = store
         self.learned = LearnedBlocks(ttl: learnedTTL, capacity: learnedCapacity)
     }
+
+    /// Sets the policy's modes, at each proxy start.
+    /// - monitorOnly: block nothing. A lookup that would have been blocked
+    ///   comes back from `decide(response:)` as `.monitor`.
+    /// - reportAllQueries: the relays report every answered lookup
+    ///   (`BlockEvent(allowed:)`), not only blocks.
+    public func configure(monitorOnly: Bool, reportAllQueries: Bool) {
+        self.monitorOnly.store(monitorOnly, ordering: .relaxed)
+        reportAll.store(reportAllQueries, ordering: .relaxed)
+    }
+
+    public var isMonitorOnly: Bool { monitorOnly.load(ordering: .relaxed) }
+    public var reportsAllQueries: Bool { reportAll.load(ordering: .relaxed) }
 
     public enum QueryDecision: Sendable, Equatable {
         /// Send the packet upstream unchanged.
@@ -24,6 +39,9 @@ public final class DNSFilter: Sendable {
         case pass
         /// Return `reply` (NXDOMAIN) to the client instead.
         case block(reply: [UInt8], name: String, reason: Reason)
+        /// Monitor mode: return the upstream response unchanged, and report
+        /// that it would have been blocked.
+        case monitor(name: String, type: UInt16, reason: Reason)
     }
 
     public enum Reason: Sendable, Equatable {
@@ -42,6 +60,9 @@ public final class DNSFilter: Sendable {
     public func decide(query packet: [UInt8]) -> QueryDecision {
         guard let q = DNSMessage.question(packet), !q.isResponse else { return .forward }
         counters.queries.add(1, ordering: .relaxed)
+        // Monitor mode decides on the answer only, so each lookup is
+        // reported once. The answer check also sees a listed query name.
+        if isMonitorOnly { return .forward }
         let rule: String
         switch store.current.verdict(normalized: q.name) {
         case .blocked(let r):
@@ -87,11 +108,17 @@ public final class DNSFilter: Sendable {
                 break
             }
         }
+        let monitoring = isMonitorOnly
         if reason == nil, let address = answer.addresses.first(where: blocklist.isBlocked) {
             reason = .address(address)
-            learned.add(q.nameString, address: address)
+            if !monitoring { learned.add(q.nameString, address: address) }
         }
-        guard let reason, let reply = DNSMessage.nxdomain(replyingTo: packet) else { return .pass }
+        guard let reason else { return .pass }
+        if monitoring {
+            counters.wouldBlock.add(1, ordering: .relaxed)
+            return .monitor(name: q.nameString, type: q.type, reason: reason)
+        }
+        guard let reply = DNSMessage.nxdomain(replyingTo: packet) else { return .pass }
         counters.blockedAnswers.add(1, ordering: .relaxed)
         return .block(reply: reply, name: q.nameString, reason: reason)
     }

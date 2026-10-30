@@ -1,20 +1,33 @@
 import Foundation
 import Synchronization
 
-/// One blocked query or answer, as the event URL receives it.
+/// One lookup, as the event URL receives it: a block, a block that monitor
+/// mode let through, or, with `EventAllQueries`, an allowed lookup.
 ///
-/// The fields are the ones the `block` log line carries, so a SIEM that
-/// reads both sees the same data.
+/// The fields of a block are the ones the `block` log line carries, so a
+/// SIEM that reads both sees the same data.
 public struct BlockEvent: Codable, Sendable, Equatable {
     public enum Kind: String, Codable, Sendable {
-        /// The query name was on the list. Nothing went upstream.
+        /// About the query name: it was on the list, or, for `allowed`, the
+        /// lookup itself.
         case query
         /// The upstream answer named a listed alias or address.
         case answer
     }
 
+    public enum Action: String, Codable, Sendable {
+        /// SafeRoom answered NXDOMAIN.
+        case blocked
+        /// Monitor mode: the answer went to the app unchanged, but would
+        /// have been blocked.
+        case wouldBlock
+        /// `EventAllQueries`: a lookup that nothing on the list matched.
+        case allowed
+    }
+
     public var time: Date
     public var kind: Kind
+    public var action: Action
     public var name: String
     /// The query's record type. Queries only.
     public var type: UInt16?
@@ -24,16 +37,24 @@ public struct BlockEvent: Codable, Sendable, Equatable {
     public var alias: String?
     /// The listed address in the answer. Answers only.
     public var address: String?
+    /// `allowed` only: every address in the answer.
+    public var addresses: [String]?
+    /// `allowed` only: every CNAME and SVCB target in the answer.
+    public var aliases: [String]?
     /// The signing identifier of the app that asked.
     public var app: String
     public var transport: String
 
     public init(
-        time: Date = Date(), kind: Kind, name: String, type: UInt16? = nil, rule: String? = nil,
-        alias: String? = nil, address: String? = nil, app: String, transport: String
+        time: Date = Date(), kind: Kind, action: Action = .blocked, name: String, type: UInt16? = nil,
+        rule: String? = nil, alias: String? = nil, address: String? = nil, addresses: [String]? = nil,
+        aliases: [String]? = nil, app: String, transport: String
     ) {
         self.time = time
         self.kind = kind
+        self.action = action
+        self.addresses = addresses
+        self.aliases = aliases
         self.name = name
         self.type = type
         self.rule = rule
@@ -55,6 +76,34 @@ public struct BlockEvent: Codable, Sendable, Equatable {
         case .address(let address):
             self.init(time: time, kind: .answer, name: name, address: address.description, app: app, transport: transport)
         }
+    }
+
+    /// Monitor mode. A listed query name reads as a `query` event, the
+    /// same as when it is blocked; anything else as an `answer` event.
+    public init(
+        wouldBlock name: String, type: UInt16, reason: DNSFilter.Reason, app: String, transport: String,
+        time: Date = Date()
+    ) {
+        if case .alias(let target, let rule) = reason, target == name {
+            self.init(time: time, kind: .query, action: .wouldBlock, name: name, type: type, rule: rule,
+                      app: app, transport: transport)
+        } else {
+            self.init(answer: name, reason: reason, app: app, transport: transport, time: time)
+            action = .wouldBlock
+        }
+    }
+
+    /// `EventAllQueries`: an upstream response that passed. Nil when the
+    /// packet is not a readable response.
+    public init?(allowed response: [UInt8], app: String, transport: String, time: Date = Date()) {
+        guard let q = DNSMessage.question(response), q.isResponse else { return nil }
+        let answer = DNSMessage.answer(response) ?? DNSMessage.Answer()
+        let addresses = answer.addresses.map(\.description)
+        let aliases = answer.names.map { String(decoding: $0, as: UTF8.self) }
+        self.init(
+            time: time, kind: .query, action: .allowed, name: q.nameString, type: q.type,
+            addresses: addresses.isEmpty ? nil : addresses, aliases: aliases.isEmpty ? nil : aliases,
+            app: app, transport: transport)
     }
 }
 

@@ -84,11 +84,25 @@ actor EventPoster {
 
     private func run() async {
         while !Task.isCancelled {
-            let delay = failures == 0
-                ? interval : jittered(retryDelay(afterFailures: failures, refresh: Self.maxRetryDelay))
-            try? await Task.sleep(for: delay)
+            if failures == 0 {
+                await waitForInterval()
+            } else {
+                try? await Task.sleep(for: jittered(retryDelay(afterFailures: failures, refresh: Self.maxRetryDelay)))
+            }
             guard !Task.isCancelled else { return }
             await flush()
+        }
+    }
+
+    /// Waits one `interval`, or less once a full batch is waiting. With
+    /// `EventAllQueries` and a long interval, a busy Mac would otherwise
+    /// fill the buffer and drop events between two posts.
+    private func waitForInterval() async {
+        let deadline = ContinuousClock.now + interval
+        while !Task.isCancelled, buffer.count < Self.batchSize {
+            let left = deadline - .now
+            guard left > .zero else { return }
+            try? await Task.sleep(for: min(left, .seconds(1)))
         }
     }
 
