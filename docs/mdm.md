@@ -182,7 +182,7 @@ With `RefreshSeconds` at 300, `STALE` starts after 15 minutes with no successful
 
 A server can publish the hash file and the list a few minutes apart, for example because a CDN caches each file for 5 minutes. During that time the downloaded list does not match the new hash. SafeRoom rejects it, keeps the current list, reports `DEGRADED`, and tries again after 1 minute.
 
-The percentage rule is off by default. If you turn it on, a rejection does not clear by itself. When the feed changes size on purpose, for example because a source was added, every Mac keeps the old list until you raise `MaxChangePercent` in the profile. The rule skips lists with fewer than 100 entries.
+The percentage rule is off by default. If you turn it on, a rejection does not clear by itself. When the feed changes size on purpose, for example because a source was added, every Mac keeps the old list until you raise `MaxChangePercent` in the profile. The rule skips lists with fewer than 100 entries. It also skips the first download after a change of `ListURL`, because it compares a feed only with itself.
 
 ## Changing the policy
 
