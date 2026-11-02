@@ -90,6 +90,8 @@ actor EventPoster {
             try? await Task.sleep(for: .milliseconds(50))
         }
         stop()
+        // Every exit below, after the last post, closes the connections.
+        defer { closeSession() }
         let left = deadline - .now
         guard buffer.count > 0 else { return }
         guard left > .milliseconds(100) else {
@@ -103,7 +105,6 @@ actor EventPoster {
             group.cancelAll()
         }
         if buffer.count > 0 { Log.event.notice("stopping with \(self.buffer.count) events not posted") }
-        closeSession()
     }
 
     func summary() -> ExtensionStatus.EventSummary {
