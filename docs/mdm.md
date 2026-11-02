@@ -15,7 +15,9 @@ You need three files from this repository:
 - `saferoom-bypass-controls.mobileconfig`, which turns off browser DNS over HTTPS and iCloud Private Relay.
 - `jamf-extension-attribute.sh`, which reports SafeRoom health to Jamf inventory.
 
-Take the profiles and the script from the `mdm/` folder next to the package in the release folder (`~/Library/Caches/saferoom/release/mdm/`). `make package` fills in the team ID, the bundle IDs, and the code signature requirements there. The copies in this repository hold placeholders. A profile from the repository does not install, and the repository copy of the extension attribute reports `TAMPERED` on every Mac.
+Take the profiles and the script from the `mdm/` folder next to the package in the release folder (`~/Library/Caches/saferoom/release/mdm/`). `make package` fills in the team ID, the bundle IDs, and the code signature requirements there. The files in this repository's `mdm/` folder are templates. They hold placeholders, and their names end in `.in`, so that Jamf and macOS refuse them. A template that was renamed and uploaded anyway replaces the policy on every Mac in its scope with the sample values, and the extension attribute reports `TAMPERED` on every Mac.
+
+The system extension payload sets `AllowUserOverrides` to `true`. This lets users approve other system extensions that no profile lists, for example the Karabiner-Elements keyboard driver. With `false`, macOS blocks every such extension on the Mac, and users cannot approve it in System Settings (ITSD-204122). SafeRoom's own approval comes from `AllowedSystemExtensions`, and `NonRemovableSystemExtensions` stops users from removing it, so `AllowUserOverrides` does not change SafeRoom. Set it to `false` only if you list every system extension that your Macs need in a profile.
 
 The DNS Proxy payload must have the `ProviderDesignatedRequirement` key. Its value is the code signature requirement of the extension, not of the app. Without it, the proxy never starts, and `nesessionmanager` logs "missing designated requirement". A restart does not fix this. Apple's [schema for the payload](https://github.com/apple/device-management/blob/release/mdm/profiles/com.apple.dnsProxy.managed.yaml) lists the key, but Apple's web page for the payload does not. `make package` writes the key and makes sure that it matches the extension in the package. If you write the profile yourself, get the value with this command:
 
@@ -40,7 +42,7 @@ To update SafeRoom, upload the new package and install it with a policy. macOS r
 
 To roll back, remove the profile from the scope. This deactivates the extension, and a restart of the Mac removes it. Then remove `/Applications/SafeRoom.app` with a script.
 
-To change the policy, edit the profile in Jamf. The extension reads the policy at each start of the proxy, so the change takes effect at the next start. A restart of the Mac starts the proxy again.
+To change the policy, edit the profile in Jamf. When macOS installs the updated profile, it restarts the proxy, and the new policy takes effect with no restart of the Mac. To make sure, read `startedAt` in `SafeRoom --status`: it changes at each restart.
 
 ## Keys
 
@@ -229,7 +231,7 @@ The percentage rule is off by default. If you turn it on, a rejection does not c
 
 ## Changing the policy
 
-The extension reads the policy once, at the start of the proxy. If you change `ProviderConfiguration`, the new policy takes effect at the next start. A reinstall of the profile or a restart of the Mac starts the proxy again.
+The extension reads the policy once, at the start of the proxy. When an MDM installs a profile with a changed `ProviderConfiguration`, macOS restarts the proxy, and the new policy takes effect then. On a managed test Mac, the proxy restarted on its own after each profile update, and `startedAt` in `SafeRoom --status` changed each time. A restart of the Mac also starts the proxy again.
 
 The extension receives the policy in the `options` of `startProxy`, under the key `VendorData`. In a system extension, `NEDNSProxyManager.shared()` does not return the payload's configuration.
 
@@ -245,7 +247,7 @@ The SafeRoom app binary has three command-line modes. They work from Terminal an
 
 The binary is at `/Applications/SafeRoom.app/Contents/MacOS/SafeRoom`.
 
-To report SafeRoom health in Jamf inventory, add the rendered copy of [`mdm/jamf-extension-attribute.sh`](../mdm/jamf-extension-attribute.sh) as an extension attribute with the data type String. The result starts with one of these states:
+To report SafeRoom health in Jamf inventory, add the rendered copy of [`mdm/jamf-extension-attribute.sh.in`](../mdm/jamf-extension-attribute.sh.in) as an extension attribute with the data type String. The result starts with one of these states:
 
 | State | Meaning |
 |---|---|

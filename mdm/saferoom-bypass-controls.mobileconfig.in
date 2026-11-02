@@ -7,6 +7,10 @@
   and iCloud Private Relay, send their lookups encrypted and past the proxy.
   This profile turns those off. Deploy it with saferoom.mobileconfig.
 
+  This file is a template, and its .in name stops Jamf and macOS from
+  accepting it. Upload the copy that tools/package.sh writes to the release
+  folder, with __APP_ID__ filled in.
+
   Remove the payload for a browser you do not deploy, or keep it: a payload for
   a browser that is not installed has no effect.
 -->
