@@ -127,12 +127,16 @@ private struct Header: View {
         case .ok where status.policy.monitorOnly == true:
             let would = status.counters.wouldBlock ?? 0
             return "Monitor mode: nothing is blocked. \(would.formatted()) lookups would have been blocked since the extension started."
+        case .ok where status.policy.permitListCount != nil:
+            return "Permit-only mode: only names on the permit list resolve. Blocking \(list ?? "the threat list"). The list is current."
         case .ok:
             return "Blocking \(list ?? "the threat list"). The list is current."
         case .degraded:
             return "Blocking with the current list. The last \(status.consecutiveFailures) update checks failed: \(status.lastAttempt?.detail ?? "unknown error")."
         case .stale:
             return "Blocking with an old list. No update check succeeded for three refresh intervals."
+        case .noList where status.policy.permitListCount != nil:
+            return "No threat list is loaded. Only names on the permit list resolve."
         case .noList:
             return "No threat list is loaded. DNS works, but nothing is blocked."
         }
@@ -230,8 +234,14 @@ private struct Metrics: View {
         HStack(spacing: 10) {
             Metric(value: (status.list?.domainRules ?? 0).formatted(.number.notation(.compactName)),
                    label: "Domains", symbol: "globe")
-            Metric(value: ((status.list?.v4Ranges ?? 0) + (status.list?.v6Ranges ?? 0)).formatted(.number.notation(.compactName)),
-                   label: "IP ranges", symbol: "point.3.connected.trianglepath.dotted")
+            if status.policy.permitListCount != nil {
+                Metric(value: (c.notPermitted ?? 0).formatted(.number.notation(.compactName)),
+                       label: status.policy.monitorOnly == true ? "Not permitted" : "Denied",
+                       symbol: "nosign", tint: .orange)
+            } else {
+                Metric(value: ((status.list?.v4Ranges ?? 0) + (status.list?.v6Ranges ?? 0)).formatted(.number.notation(.compactName)),
+                       label: "IP ranges", symbol: "point.3.connected.trianglepath.dotted")
+            }
             if status.policy.monitorOnly == true {
                 Metric(value: (c.wouldBlock ?? 0).formatted(.number.notation(.compactName)),
                        label: "Would block", symbol: "eye.fill", tint: .orange)
@@ -310,6 +320,7 @@ private struct PolicySection: View {
             Row("Integrity check", policy.sha256Check ? "SHA-256 file" : "TLS only")
             Row("Refresh interval", Duration.seconds(policy.refreshSeconds).formatted(.units(allowed: [.hours, .minutes], width: .wide)))
             Row("Allow list", "\(policy.allowListCount) entries")
+            if let permit = policy.permitListCount { Row("Permit only", "\(permit) entries") }
             Row("Never-block hosts", "\(policy.neverBlockHostCount) entries")
             if let eventURL = policy.eventURL { Row("Block events", eventURL, mono: true) }
             if editable {

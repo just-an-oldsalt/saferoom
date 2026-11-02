@@ -52,6 +52,13 @@ public struct ProviderPolicy: Sendable, Equatable {
     /// `MonitorOnly`: block nothing, and report what would have been
     /// blocked. For a trial of a new list or a first rollout.
     public var monitorOnly = false
+    /// `PermitList`: with `permitOnly`, the only names that resolve, besides
+    /// `AllowList` and the never-block set. The threat list still applies
+    /// to them.
+    public var permitList: [DomainRule] = []
+    /// `PermitOnly`: answer NXDOMAIN for every name not on `permitList`.
+    /// Off when the permit list is empty, so a typo cannot cut a Mac off.
+    public var permitOnly = false
     /// True when the SafeRoom app wrote this policy (`ConfiguredBy = app`),
     /// not an MDM profile. Only the app's window reads it, to decide whether
     /// the user may edit the policy (`ConfigurationAccess`).
@@ -104,6 +111,14 @@ public struct ProviderPolicy: Sendable, Equatable {
         allowTopLevelBlocks = config["AllowTopLevelBlocks"] as? Bool ?? false
         eventAllQueries = bool("EventAllQueries", config)
         monitorOnly = bool("MonitorOnly", config)
+        permitList = rules("PermitList", config)
+        permitOnly = bool("PermitOnly", config)
+        if permitOnly, permitList.isEmpty {
+            // Every name outside the never-block set would fail. That is
+            // far more likely a profile mistake than an intent.
+            ignored.append("PermitOnly: needs a PermitList with at least one usable entry")
+            permitOnly = false
+        }
         if eventAllQueries, eventURL == nil { ignored.append("EventAllQueries: needs EventURL") }
         configuredByApp = config[Self.configuredByKey] as? String == Self.configuredByApp
     }
@@ -126,7 +141,7 @@ public struct ProviderPolicy: Sendable, Equatable {
     public func blocklist(_ list: CompiledList) -> Blocklist {
         Blocklist(
             list: list, allow: allowList + listHostRules, neverBlock: effectiveNeverBlock,
-            allowTopLevelBlocks: allowTopLevelBlocks)
+            allowTopLevelBlocks: allowTopLevelBlocks, permit: permitOnly ? permitList : nil)
     }
 
     // MARK: - Value parsing

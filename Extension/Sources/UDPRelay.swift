@@ -68,6 +68,10 @@ final class UDPRelay: @unchecked Sendable {
             Log.blockedQuery(name: name, type: type, rule: rule, app: app, transport: "udp")
             events.add(.init(query: name, type: type, rule: rule, app: app, transport: "udp"))
             writeToClient(reply, from: endpoint)
+        case .deny(let reply, let name, let type):
+            Log.denied(name: name, type: type, monitoring: false, app: app, transport: "udp")
+            events.add(.init(denied: name, type: type, app: app, transport: "udp"))
+            writeToClient(reply, from: endpoint)
         case .forward:
             UpstreamPool.shared.send(packet, to: endpoint) { [self] response in
                 queue.async { [self] in
@@ -93,6 +97,14 @@ final class UDPRelay: @unchecked Sendable {
         case .monitor(let name, let type, let reason):
             Log.wouldBlock(name: name, reason: reason, app: app, transport: "udp")
             events.add(.init(wouldBlock: name, type: type, reason: reason, app: app, transport: "udp"))
+            writeToClient(packet, from: endpoint)
+        case .deny(let reply, let name, let type):
+            Log.denied(name: name, type: type, monitoring: false, app: app, transport: "udp")
+            events.add(.init(denied: name, type: type, app: app, transport: "udp"))
+            writeToClient(reply, from: endpoint)
+        case .monitorDeny(let name, let type):
+            Log.denied(name: name, type: type, monitoring: true, app: app, transport: "udp")
+            events.add(.init(denied: name, type: type, monitoring: true, app: app, transport: "udp"))
             writeToClient(packet, from: endpoint)
         }
     }

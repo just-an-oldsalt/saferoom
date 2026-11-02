@@ -68,3 +68,11 @@ private func status(
     #expect(s.healthLine(now: start.addingTimeInterval(60)).hasPrefix("MONITOR: "))
     #expect(!status(failures: 0).healthLine(now: start.addingTimeInterval(60)).contains("MONITOR"))
 }
+
+@Test func healthLineSaysPermitOnly() {
+    var s = status(failures: 0)
+    s.policy.permitListCount = 12
+    let line = s.healthLine(now: start.addingTimeInterval(60))
+    #expect(line.hasPrefix("OK: "))
+    #expect(line.contains("permit only (12 names)"))
+}

@@ -43,6 +43,9 @@ actor ListLoader {
     }
 
     func start() {
+        // The policy's modes apply before any list loads: with PermitOnly,
+        // a Mac with no threat list must still deny unpermitted names.
+        store.replace(policy.blocklist(.empty))
         if let cached = Self.loadCache() {
             // The cached list is as old as its install, not as this start.
             install(cached, invalid: [], from: "cache", at: state.listInstalledAt)

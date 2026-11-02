@@ -8,7 +8,8 @@ import Synchronization
 ///
 /// The relays only add to the `EventBuffer`. This actor wakes every
 /// `eventInterval`, empties the buffer in batches of `batchSize`, and posts
-/// each batch as one JSON body. A failed post puts its batch back and waits
+/// each batch as one JSON body. A threat-list match (blocked or would
+/// block) wakes it at once, and goes first in the batch. A failed post puts its batch back and waits
 /// 1, 2, 4... minutes, up to 10, each spread by up to a quarter either way.
 /// When the proxy stops, one last post gets two seconds, because the buffer
 /// is in memory only. Nothing here can delay or change a DNS
@@ -107,17 +108,23 @@ actor EventPoster {
         }
     }
 
-    /// Waits one `interval`, or less once a full batch is waiting. With
-    /// `EventAllQueries` and a long interval, a busy Mac would otherwise
-    /// fill the buffer and drop events between two posts.
+    /// Waits one `interval`, or less once a full batch or a threat-list
+    /// event is waiting. With `EventAllQueries` and a long interval, a busy
+    /// Mac would otherwise fill the buffer and drop events between two
+    /// posts. A block goes out within `urgentCheck`, whatever the interval.
+    /// The failure backoff in `run()` still applies to it, so a dead server
+    /// is not retried every second.
     private func waitForInterval() async {
         let deadline = ContinuousClock.now + interval
-        while !Task.isCancelled, buffer.count < Self.batchSize {
+        while !Task.isCancelled, buffer.count < Self.batchSize, buffer.urgentCount == 0 {
             let left = deadline - .now
             guard left > .zero else { return }
-            try? await Task.sleep(for: min(left, .seconds(1)))
+            try? await Task.sleep(for: min(left, Self.urgentCheck))
         }
     }
+
+    /// How often the wait looks for a threat-list event.
+    static let urgentCheck: Duration = .milliseconds(250)
 
     /// Posts until the buffer is empty or a post fails.
     private func flush(timeout: TimeInterval = 30) async {

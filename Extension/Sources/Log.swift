@@ -35,6 +35,15 @@ enum Log {
             "blocked query name=\(name, privacy: .public) type=\(type, privacy: .public) rule=\(rule, privacy: .public) app=\(app, privacy: .public) via=\(transport, privacy: .public)")
     }
 
+    /// `PermitOnly`. Its own verbs, so a SIEM rule that alerts on threat
+    /// blocks does not fire for each name an admin has not permitted yet.
+    static func denied(name: String, type: UInt16, monitoring: Bool, app: String, transport: String) {
+        let verb = monitoring ? "would deny" : "denied query"
+        let name = clean(name), app = clean(app)
+        block.notice(
+            "\(verb, privacy: .public) name=\(name, privacy: .public) type=\(type, privacy: .public) reason=notPermitted app=\(app, privacy: .public) via=\(transport, privacy: .public)")
+    }
+
     /// Monitor mode. The verb differs from a block, so a SIEM rule that
     /// alerts on "blocked" does not fire for a lookup that went through.
     static func wouldBlock(name: String, reason: DNSFilter.Reason, app: String, transport: String) {

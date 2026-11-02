@@ -78,6 +78,10 @@ final class TCPRelay: @unchecked Sendable {
                         Log.blockedQuery(name: name, type: type, rule: rule, app: app, transport: "tcp")
                         events.add(.init(query: name, type: type, rule: rule, app: app, transport: "tcp"))
                         writeToClient(reply, pending)
+                    case .deny(let reply, let name, let type):
+                        Log.denied(name: name, type: type, monitoring: false, app: app, transport: "tcp")
+                        events.add(.init(denied: name, type: type, app: app, transport: "tcp"))
+                        writeToClient(reply, pending)
                     case .forward:
                         guard let framed = DNSTCPFramer.frame(message), let upstream else { continue }
                         pending.enter()
@@ -109,6 +113,14 @@ final class TCPRelay: @unchecked Sendable {
                     case .monitor(let name, let type, let reason):
                         Log.wouldBlock(name: name, reason: reason, app: app, transport: "tcp")
                         events.add(.init(wouldBlock: name, type: type, reason: reason, app: app, transport: "tcp"))
+                        writeToClient(message, pending)
+                    case .deny(let reply, let name, let type):
+                        Log.denied(name: name, type: type, monitoring: false, app: app, transport: "tcp")
+                        events.add(.init(denied: name, type: type, app: app, transport: "tcp"))
+                        writeToClient(reply, pending)
+                    case .monitorDeny(let name, let type):
+                        Log.denied(name: name, type: type, monitoring: true, app: app, transport: "tcp")
+                        events.add(.init(denied: name, type: type, monitoring: true, app: app, transport: "tcp"))
                         writeToClient(message, pending)
                     }
                 }

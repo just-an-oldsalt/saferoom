@@ -58,6 +58,9 @@ public struct ExtensionStatus: Codable, Sendable, Equatable {
         public var monitorOnly: Bool?
         /// True when every answered lookup goes to the event URL. Nil otherwise.
         public var eventAllQueries: Bool?
+        /// The number of `PermitList` entries when `PermitOnly` is on. Nil
+        /// otherwise.
+        public var permitListCount: Int?
     }
 
     public struct ListSummary: Codable, Sendable, Equatable {
@@ -98,6 +101,9 @@ public struct ExtensionStatus: Codable, Sendable, Equatable {
         /// Lookups that monitor mode let through but would have blocked.
         /// Optional, so a status from an older extension still decodes.
         public var wouldBlock: Int?
+        /// `PermitOnly`: lookups of names not on the permit list, denied or,
+        /// in monitor mode, let through.
+        public var notPermitted: Int?
 
         public init() {}
     }
@@ -119,7 +125,8 @@ extension ExtensionStatus.PolicySummary {
             eventServerPins: policy.eventURL != nil ? policy.eventServerPins?.count : nil,
             configuredBy: policy.configuredByApp ? ProviderPolicy.configuredByApp : nil,
             monitorOnly: policy.monitorOnly ? true : nil,
-            eventAllQueries: policy.eventURL != nil && policy.eventAllQueries ? true : nil)
+            eventAllQueries: policy.eventURL != nil && policy.eventAllQueries ? true : nil,
+            permitListCount: policy.permitOnly ? policy.permitList.count : nil)
     }
 
     public static func redacted(_ url: URL) -> String {
@@ -180,6 +187,7 @@ extension ExtensionStatus {
         let health = health(now: now)
         var parts: [String] = []
         if let list { parts.append("\(list.domainRules) domains, \(list.v4Ranges + list.v6Ranges) ranges") }
+        if let permit = policy.permitListCount { parts.append("permit only (\(permit) names)") }
         if let lastSuccessAt { parts.append("list checked \(Self.stamp(lastSuccessAt))") }
         if consecutiveFailures > 0, let lastAttempt {
             parts.append("\(consecutiveFailures) failed: \(lastAttempt.detail ?? lastAttempt.result.rawValue)")
@@ -220,6 +228,7 @@ public final class FilterCounters: Sendable {
     let blockedAnswers = Atomic<Int>(0)
     let learnedBlocks = Atomic<Int>(0)
     let wouldBlock = Atomic<Int>(0)
+    let notPermitted = Atomic<Int>(0)
 
     public init() {}
 
@@ -231,6 +240,8 @@ public final class FilterCounters: Sendable {
         v.learnedBlocks = learnedBlocks.load(ordering: .relaxed)
         let would = wouldBlock.load(ordering: .relaxed)
         v.wouldBlock = would > 0 ? would : nil
+        let denied = notPermitted.load(ordering: .relaxed)
+        v.notPermitted = denied > 0 ? denied : nil
         return v
     }
 }

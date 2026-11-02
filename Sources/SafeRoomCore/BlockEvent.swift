@@ -2,7 +2,8 @@ import Foundation
 import Synchronization
 
 /// One lookup, as the event URL receives it: a block, a block that monitor
-/// mode let through, or, with `EventAllQueries`, an allowed lookup.
+/// mode let through, a name outside the permit list, or, with
+/// `EventAllQueries`, an allowed lookup.
 ///
 /// The fields of a block are the ones the `block` log line carries, so a
 /// SIEM that reads both sees the same data.
@@ -21,9 +22,18 @@ public struct BlockEvent: Codable, Sendable, Equatable {
         /// Monitor mode: the answer went to the app unchanged, but would
         /// have been blocked.
         case wouldBlock
+        /// `PermitOnly`: the name is not on the permit list. SafeRoom
+        /// answered NXDOMAIN.
+        case denied
+        /// `PermitOnly` with `MonitorOnly`: the name is not on the permit
+        /// list, but the answer went to the app unchanged.
+        case wouldDeny
         /// `EventAllQueries`: a lookup that nothing on the list matched.
         case allowed
     }
+
+    /// A threat-list match, blocked or not. These skip the post interval.
+    public var isUrgent: Bool { action == .blocked || action == .wouldBlock }
 
     public var time: Date
     public var kind: Kind
@@ -93,6 +103,16 @@ public struct BlockEvent: Codable, Sendable, Equatable {
         }
     }
 
+    /// `PermitOnly`: a query name outside the permit list. `monitoring`
+    /// means the lookup went through.
+    public init(
+        denied name: String, type: UInt16, monitoring: Bool = false, app: String, transport: String,
+        time: Date = Date()
+    ) {
+        self.init(time: time, kind: .query, action: monitoring ? .wouldDeny : .denied, name: name, type: type,
+                  app: app, transport: transport)
+    }
+
     /// `EventAllQueries`: an upstream response that passed. Nil when the
     /// packet is not a readable response.
     public init?(allowed response: [UInt8], app: String, transport: String, time: Date = Date()) {
@@ -146,16 +166,25 @@ public struct EventBatch: Codable, Sendable, Equatable {
 /// queue, so `add` only takes a lock and appends: a slow or dead event
 /// server never delays a DNS answer.
 ///
-/// The buffer is bounded. A flood of blocks, or a server that stays down,
-/// drops the oldest events and counts them. The next batch reports the
+/// Two queues. Threat-list matches (`isUrgent`) go first: `take` empties
+/// them before the rest, and the poster sends them without waiting for the
+/// interval. Everything else (allowed lookups, permit-list denials) waits
+/// for the next post.
+///
+/// The buffer is bounded. A flood, or a server that stays down, drops the
+/// oldest events and counts them. The other events go first, so a flood of
+/// allowed lookups cannot push out a block. The next batch reports the
 /// count, so the server knows that events are missing.
 public final class EventBuffer: Sendable {
     private struct State {
         var enabled = false
-        var events: [BlockEvent] = []
+        var urgent: [BlockEvent] = []
+        var routine: [BlockEvent] = []
         /// Dropped since the last `take`, for the next batch.
         var droppedPending = 0
         var droppedTotal = 0
+
+        var count: Int { urgent.count + routine.count }
     }
 
     private let state = Mutex(State())
@@ -171,7 +200,8 @@ public final class EventBuffer: Sendable {
         state.withLock { s in
             s.enabled = enabled
             if !enabled {
-                s.events = []
+                s.urgent = []
+                s.routine = []
                 s.droppedPending = 0
             }
         }
@@ -180,47 +210,56 @@ public final class EventBuffer: Sendable {
     public func add(_ event: BlockEvent) {
         state.withLock { s in
             guard s.enabled else { return }
-            if s.events.count >= capacity { dropOldest(&s, keeping: capacity - 1) }
-            s.events.append(event)
+            if s.count >= capacity { dropOldest(&s, keeping: capacity - 1) }
+            if event.isUrgent { s.urgent.append(event) } else { s.routine.append(event) }
         }
     }
 
-    /// Removes up to `limit` of the oldest events, with the drop count that
-    /// goes with them.
+    /// Removes up to `limit` events, urgent ones first and the oldest first
+    /// within each queue, with the drop count that goes with them.
     public func take(_ limit: Int) -> (events: [BlockEvent], dropped: Int) {
         state.withLock { s in
-            let events = Array(s.events.prefix(limit))
-            s.events.removeFirst(events.count)
+            var events = Array(s.urgent.prefix(limit))
+            s.urgent.removeFirst(events.count)
+            let more = s.routine.prefix(limit - events.count)
+            s.routine.removeFirst(more.count)
+            events += more
             let dropped = s.droppedPending
             s.droppedPending = 0
             return (events, dropped)
         }
     }
 
-    /// Returns a batch that could not be posted to the front of the buffer.
+    /// Returns a batch that could not be posted to the front of its queues.
     /// Events added meanwhile stay behind it, and the oldest go first if the
     /// two together do not fit.
     public func putBack(_ events: [BlockEvent], dropped: Int) {
         state.withLock { s in
             guard s.enabled else { return }
-            s.events = events + s.events
+            s.urgent = events.filter(\.isUrgent) + s.urgent
+            s.routine = events.filter { !$0.isUrgent } + s.routine
             s.droppedPending += dropped
-            if s.events.count > capacity { dropOldest(&s, keeping: capacity) }
+            if s.count > capacity { dropOldest(&s, keeping: capacity) }
         }
     }
 
-    public var count: Int { state.withLock { $0.events.count } }
+    public var count: Int { state.withLock { $0.count } }
+    /// Events that the poster sends without waiting for the interval.
+    public var urgentCount: Int { state.withLock { $0.urgent.count } }
     public var droppedTotal: Int { state.withLock { $0.droppedTotal } }
 
     /// Drops at least a tenth of the capacity at once, so a flood does not
-    /// move the whole array on every add.
+    /// move the whole array on every add. Routine events go first.
     private func dropOldest(_ s: inout State, keeping limit: Int) {
-        let excess = s.events.count - limit
+        let excess = s.count - limit
         guard excess > 0 else { return }
-        let drop = min(s.events.count, max(excess, capacity / 10))
-        s.events.removeFirst(drop)
+        var drop = min(s.count, max(excess, capacity / 10))
         s.droppedPending += drop
         s.droppedTotal += drop
+        let routine = min(drop, s.routine.count)
+        s.routine.removeFirst(routine)
+        drop -= routine
+        s.urgent.removeFirst(min(drop, s.urgent.count))
     }
 }
 

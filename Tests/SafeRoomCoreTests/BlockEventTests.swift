@@ -166,3 +166,72 @@ private extension JSONDecoder {
     #expect(p.ignored.contains("EventAllQueries: needs EventURL"))
     #expect(ExtensionStatus.PolicySummary(p).eventAllQueries == nil)
 }
+
+// MARK: - Urgent events
+
+private func allowedEvent(_ name: String) -> BlockEvent {
+    BlockEvent(time: Date(), kind: .query, action: .allowed, name: name, app: "com.example.app", transport: "udp")
+}
+
+@Test func threatMatchesAreUrgent() {
+    #expect(event("a.example").isUrgent)
+    #expect(BlockEvent(wouldBlock: "a.example", type: 1, reason: .alias(target: "a.example", rule: "a.example"),
+                       app: "x", transport: "udp").isUrgent)
+    #expect(!allowedEvent("a.example").isUrgent)
+    #expect(!BlockEvent(denied: "a.example", type: 1, app: "x", transport: "udp").isUrgent)
+    #expect(!BlockEvent(denied: "a.example", type: 1, monitoring: true, app: "x", transport: "udp").isUrgent)
+}
+
+@Test func urgentEventsGoFirst() {
+    let buffer = EventBuffer()
+    buffer.setEnabled(true)
+    buffer.add(allowedEvent("a1.example"))
+    buffer.add(allowedEvent("a2.example"))
+    buffer.add(event("b1.example"))
+    buffer.add(BlockEvent(denied: "n1.example", type: 1, app: "x", transport: "udp"))
+    buffer.add(event("b2.example"))
+    #expect(buffer.count == 5)
+    #expect(buffer.urgentCount == 2)
+    #expect(buffer.take(3).events.map(\.name) == ["b1.example", "b2.example", "a1.example"])
+    #expect(buffer.urgentCount == 0)
+    #expect(buffer.take(10).events.map(\.name) == ["a2.example", "n1.example"])
+}
+
+@Test func floodOfAllowedLookupsKeepsBlocks() {
+    let buffer = EventBuffer(capacity: 100)
+    buffer.setEnabled(true)
+    buffer.add(event("blocked.example"))
+    for i in 0..<500 { buffer.add(allowedEvent("d\(i).example")) }
+    #expect(buffer.count <= 100)
+    #expect(buffer.urgentCount == 1)
+    #expect(buffer.droppedTotal == 501 - buffer.count)
+    #expect(buffer.take(1).events.first?.name == "blocked.example")
+}
+
+@Test func fullOfBlocksStillDropsOldest() {
+    let buffer = EventBuffer(capacity: 10)
+    buffer.setEnabled(true)
+    for i in 0..<11 { buffer.add(event("d\(i).example")) }
+    #expect(buffer.count == 10)
+    #expect(buffer.take(1).events.first?.name == "d1.example")
+}
+
+@Test func putBackKeepsUrgentFirst() {
+    let buffer = EventBuffer()
+    buffer.setEnabled(true)
+    buffer.add(event("b1.example"))
+    buffer.add(allowedEvent("a1.example"))
+    let (batch, dropped) = buffer.take(10)
+    buffer.add(allowedEvent("a2.example"))
+    buffer.add(event("b2.example"))
+    buffer.putBack(batch, dropped: dropped)
+    #expect(buffer.take(10).events.map(\.name) == ["b1.example", "b2.example", "a1.example", "a2.example"])
+}
+
+@Test func deniedEventJSON() throws {
+    let e = BlockEvent(denied: "new.example", type: 28, monitoring: true, app: "x", transport: "tcp")
+    let json = String(decoding: try EventBatch.encoder.encode(e), as: UTF8.self)
+    #expect(json.contains(#""action":"wouldDeny""#))
+    #expect(json.contains(#""kind":"query""#))
+    #expect(!json.contains("rule"))
+}

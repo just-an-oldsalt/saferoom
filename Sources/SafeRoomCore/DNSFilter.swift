@@ -32,6 +32,9 @@ public final class DNSFilter: Sendable {
         case forward
         /// Answer the client with `reply` and do not send anything upstream.
         case block(reply: [UInt8], name: String, type: UInt16, rule: String)
+        /// `PermitOnly`: the name is not on the permit list. Answer the
+        /// client with `reply` (NXDOMAIN).
+        case deny(reply: [UInt8], name: String, type: UInt16)
     }
 
     public enum ResponseDecision: Sendable, Equatable {
@@ -42,6 +45,12 @@ public final class DNSFilter: Sendable {
         /// Monitor mode: return the upstream response unchanged, and report
         /// that it would have been blocked.
         case monitor(name: String, type: UInt16, reason: Reason)
+        /// `PermitOnly`: the query name is not on the permit list. Return
+        /// `reply` (NXDOMAIN).
+        case deny(reply: [UInt8], name: String, type: UInt16)
+        /// `PermitOnly` with monitor mode: return the upstream response
+        /// unchanged, and report that the name is not on the permit list.
+        case monitorDeny(name: String, type: UInt16)
     }
 
     public enum Reason: Sendable, Equatable {
@@ -69,6 +78,10 @@ public final class DNSFilter: Sendable {
             rule = r
         case .allowed:
             return .forward
+        case .notPermitted:
+            guard let reply = DNSMessage.nxdomain(replyingTo: packet) else { return .forward }
+            counters.notPermitted.add(1, ordering: .relaxed)
+            return .deny(reply: reply, name: q.nameString, type: q.type)
         case .pass:
             guard let address = learned.lookup(q.nameString) else { return .forward }
             rule = "learned:\(address)"
@@ -81,6 +94,11 @@ public final class DNSFilter: Sendable {
 
     /// Called for each upstream response before it goes back to the client.
     ///
+    /// With `PermitOnly`, only the query name must be on the permit list.
+    /// CNAME and SVCB targets are checked against the threat list only:
+    /// nearly every site answers through a CDN name that no admin would
+    /// list. A threat match outranks a permit-list denial.
+    ///
     /// An allowlisted query name passes without any check. The allowlist is
     /// how an admin fixes a false positive, and the likeliest false positive
     /// is a CDN or shared-hosting range in a feed. Without this, a listed
@@ -89,9 +107,16 @@ public final class DNSFilter: Sendable {
         let blocklist = store.current
         guard let q = DNSMessage.question(packet) else { return .pass }
         var reason: Reason?
+        var notPermitted = false
         switch blocklist.verdict(normalized: q.name) {
         case .allowed:
             return .pass
+        case .notPermitted:
+            // Monitor mode forwards every query, so this is where it sees
+            // the name. Otherwise decide(query:) denied it already, unless
+            // the client wrote the name in a form the parser read
+            // differently.
+            notPermitted = true
         case .blocked(let rule):
             // The query got past decide(query:), for example because the
             // client wrote its name in a form this parser read differently.
@@ -113,7 +138,13 @@ public final class DNSFilter: Sendable {
             reason = .address(address)
             if !monitoring { learned.add(q.nameString, address: address) }
         }
-        guard let reason else { return .pass }
+        guard let reason else {
+            guard notPermitted else { return .pass }
+            counters.notPermitted.add(1, ordering: .relaxed)
+            if monitoring { return .monitorDeny(name: q.nameString, type: q.type) }
+            guard let reply = DNSMessage.nxdomain(replyingTo: packet) else { return .pass }
+            return .deny(reply: reply, name: q.nameString, type: q.type)
+        }
         if monitoring {
             counters.wouldBlock.add(1, ordering: .relaxed)
             return .monitor(name: q.nameString, type: q.type, reason: reason)

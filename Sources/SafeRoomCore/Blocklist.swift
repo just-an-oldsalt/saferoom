@@ -10,14 +10,19 @@ public struct Blocklist: Sendable {
     /// Rules on a single label (`*.zip`) block a whole top-level domain.
     /// Off unless the policy turns it on, so a bad feed cannot block `*.com`.
     public let allowTopLevelBlocks: Bool
+    /// `PermitOnly`: the names that may resolve. Nil when the mode is off.
+    /// Checked after the blocklist, so a permitted name on the threat list
+    /// is still blocked.
+    public let permit: NameSet?
 
     public init(
         list: CompiledList, allow: [DomainRule] = [], neverBlock: [String] = NeverBlock.builtIn,
-        allowTopLevelBlocks: Bool = false
+        allowTopLevelBlocks: Bool = false, permit: [DomainRule]? = nil
     ) {
         self.list = list
         self.allow = NameSet(allow + neverBlock.map { DomainRule(name: $0, match: .subtree) })
         self.allowTopLevelBlocks = allowTopLevelBlocks
+        self.permit = permit.map { NameSet($0) }
     }
 
     public static let empty = Blocklist(list: .empty)
@@ -28,6 +33,8 @@ public struct Blocklist: Sendable {
         case allowed(rule: String)
         /// A block rule matched. `rule` is the matching suffix of the query.
         case blocked(rule: String)
+        /// `PermitOnly`: no allow, block, or permit rule matched.
+        case notPermitted
     }
 
     /// `name` in any case, with or without a trailing dot.
@@ -47,6 +54,7 @@ public struct Blocklist: Sendable {
             if let length = list.domains.matchedSuffixLength(buffer, skipTopLevel: !allowTopLevelBlocks) {
                 return .blocked(rule: suffix(length))
             }
+            if let permit, permit.matchedSuffixLength(buffer) == nil { return .notPermitted }
             return .pass
         }
     }
