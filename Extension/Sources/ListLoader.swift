@@ -7,7 +7,8 @@ import SafeRoomCore
 /// so the proxy blocks from its first query. Then a refresh loop: download
 /// (or read the local file), check with `ListUpdate`, install, write the
 /// cache, sleep. Failures retry with backoff and keep the current list.
-/// With no list at all, every query passes (fail-open).
+/// With no list at all, every query passes (fail-open), except that
+/// `PermitOnly` still denies names that are not permitted.
 actor ListLoader {
     let policy: ProviderPolicy
     let store: BlocklistStore

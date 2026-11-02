@@ -238,7 +238,7 @@ To report SafeRoom health in Jamf inventory, add the rendered copy of [`mdm/jamf
 | `MONITOR` | As `OK`, but `MonitorOnly` is on: nothing is blocked. If the list also has a problem, the line starts with that state and then says "MONITOR ONLY". |
 | `DEGRADED` | Recent checks failed. The list in use is not stale yet. With a hash file, a short `DEGRADED` period after a new list is published is normal. See [How SafeRoom updates the list](#how-saferoom-updates-the-list). |
 | `STALE` | No check succeeded for three refresh intervals. |
-| `NO LIST` | No list is loaded. Every query passes. |
+| `NO LIST` | No list is loaded. Every query passes. With `PermitOnly`, only permitted names resolve. |
 | `NOT RUNNING` | The extension or the proxy does not answer. |
 | `TAMPERED` | The app at `/Applications/SafeRoom.app` is not signed by the SafeRoom developer. Its output is not trusted. |
 | `NOT INSTALLED` | The app is not in `/Applications`. |

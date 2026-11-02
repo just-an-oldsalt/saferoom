@@ -9,7 +9,8 @@ import Synchronization
 /// decisions come from `Blocklist.decide` in SafeRoomCore.
 ///
 /// Fail-open: until a list loads, the store holds an empty list and every
-/// query is forwarded. A crash is not covered. While launchd restarts the
+/// query is forwarded, except that `PermitOnly` still denies names that
+/// are not permitted. A crash is not covered. While launchd restarts the
 /// extension, queries in that gap fail (docs/threat-model.md).
 final class DNSProxyProvider: NEDNSProxyProvider, NEAppProxyUDPFlowHandling, @unchecked Sendable {
     private let filter = DNSFilter(store: BlocklistStore())

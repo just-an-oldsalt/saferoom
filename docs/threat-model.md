@@ -33,6 +33,8 @@ Each block goes to the unified log with the name, the rule, and the signing ID o
 
 SafeRoom fails open. If it has no list, or if it cannot read a packet, it lets the lookup through. The reason is that a DNS outage stops all work on the Mac, and a gap in blocking is easier to detect and to fix.
 
+`PermitOnly` is the exception. It is in the profile, so it applies from the start of the proxy, with or without a threat list, and SafeRoom denies every name that is not permitted. A packet that SafeRoom cannot read still goes through.
+
 | Event | Result | Detection |
 |---|---|---|
 | No list was ever loaded | Every lookup passes. | Jamf extension attribute: `NO LIST`. |
