@@ -23,7 +23,16 @@ import Synchronization
 ///   is the minimum. The pin replaces the system trust check, so a
 ///   self-signed certificate works. Without the key, the system check
 ///   applies.
-/// - The response body is never read.
+/// - The response body is read up to `maxResponseBytes`, so that the
+///   connection can carry the next post, and is never parsed.
+///
+/// Posts share one URLSession, so the TLS connection and the client
+/// certificate handshake are reused while the server keeps the connection
+/// open. Each post still gets its own task delegate, which runs the pin
+/// check and picks the certificate when a new connection opens, and keeps
+/// that post's failure reason. The session is replaced after a failed post
+/// and after `maxSessionAge`, so a new client certificate or a changed
+/// server key takes effect without a restart.
 actor EventPoster {
     static let batchSize = 500
     static let maxRetryDelay: Duration = .seconds(600)
@@ -41,6 +50,14 @@ actor EventPoster {
     private var lastError: String?
     /// True while a batch is out of the buffer and on its way.
     private var posting = false
+    private var session: URLSession?
+    private var sessionCreatedAt = ContinuousClock.now
+    private let connections = ConnectionCount()
+
+    static let maxSessionAge: Duration = .seconds(600)
+    /// API Gateway and load balancers send a few bytes. A server that sends
+    /// more only costs the connection.
+    static let maxResponseBytes = 64 * 1024
 
     init?(policy: ProviderPolicy, buffer: EventBuffer, version: String) {
         guard let url = policy.eventURL else { return nil }
@@ -86,6 +103,7 @@ actor EventPoster {
             group.cancelAll()
         }
         if buffer.count > 0 { Log.event.notice("stopping with \(self.buffer.count) events not posted") }
+        closeSession()
     }
 
     func summary() -> ExtensionStatus.EventSummary {
@@ -93,7 +111,7 @@ actor EventPoster {
             url: ExtensionStatus.PolicySummary.redacted(url), auth: auth.description,
             intervalSeconds: Int(interval.components.seconds), queued: buffer.count, posted: posted,
             dropped: buffer.droppedTotal, consecutiveFailures: failures, lastPostAt: lastPostAt,
-            lastError: lastError)
+            lastError: lastError, connectionsOpened: connections.value)
     }
 
     private func run() async {
@@ -152,6 +170,11 @@ actor EventPoster {
     }
 
     /// Nil on a 2xx reply, else the reason.
+    ///
+    /// A reused connection that the server closed while idle fails with
+    /// "network connection was lost", and URLSession does not retry a
+    /// POST. One retry on a new connection covers that. The server may
+    /// then receive the batch twice.
     private func post(_ batch: EventBatch, timeout: TimeInterval) async -> String? {
         let body: Data
         do {
@@ -162,49 +185,101 @@ actor EventPoster {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.httpBody = body
+        request.timeoutInterval = timeout
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("SafeRoom/\(ListFetcher.version)", forHTTPHeaderField: "User-Agent")
         if case .bearer(let token) = auth {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 
+        var result = await send(request)
+        if result.lostConnection {
+            Log.event.notice("event server closed the connection; retrying on a new one")
+            closeSession()
+            result = await send(request)
+        }
+        // A failure may mean a bad connection or a changed certificate or
+        // key. The next post starts from a new session.
+        if result.error != nil { closeSession() }
+        return result.error
+    }
+
+    private func currentSession() -> URLSession {
+        if let session, ContinuousClock.now - sessionCreatedAt < Self.maxSessionAge { return session }
+        closeSession()
         let config = URLSessionConfiguration.ephemeral
         config.urlCache = nil
         config.httpCookieStorage = nil
-        config.timeoutIntervalForRequest = timeout
-        config.timeoutIntervalForResource = 2 * timeout
+        config.urlCredentialStorage = nil
+        config.timeoutIntervalForResource = 60
         // ATS is off in this extension (Info.plist), so its TLS floor is set
         // here.
         config.tlsMinimumSupportedProtocolVersion = pins != nil ? .TLSv13 : .TLSv12
-        // One delegate per post, so the failure it records belongs to this
-        // post.
-        let delegate = Delegate(auth: auth, url: url, pins: pins)
-        let session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
-        // Cancels the response body instead of waiting for it.
-        defer { session.invalidateAndCancel() }
+        // No session delegate: each task gets its own (`send`), so the
+        // challenges and the failure reason belong to one post.
+        let session = URLSession(configuration: config)
+        self.session = session
+        sessionCreatedAt = .now
+        return session
+    }
+
+    private func closeSession() {
+        // Finishes tasks in flight, then closes the connections.
+        session?.finishTasksAndInvalidate()
+        session = nil
+    }
+
+    private func send(_ request: URLRequest) async -> (error: String?, lostConnection: Bool) {
+        let delegate = Delegate(auth: auth, url: url, pins: pins, connections: connections)
         do {
-            let (_, response) = try await session.bytes(for: request)
-            guard let http = response as? HTTPURLResponse else { return "not an HTTP response" }
-            return (200..<300).contains(http.statusCode) ? nil : "HTTP status \(http.statusCode)"
+            let (bytes, response) = try await currentSession().bytes(for: request, delegate: delegate)
+            guard let http = response as? HTTPURLResponse else {
+                bytes.task.cancel()
+                return ("not an HTTP response", false)
+            }
+            // Read the small reply to its end, so the connection is free for
+            // the next post. A large one is cut off, which closes it. The
+            // status already says whether the batch arrived, so an error in
+            // the body does not fail the post: a retry would only send the
+            // batch twice.
+            var read = 0
+            do {
+                for try await _ in bytes {
+                    read += 1
+                    if read > Self.maxResponseBytes {
+                        bytes.task.cancel()
+                        break
+                    }
+                }
+            } catch {}
+            return ((200..<300).contains(http.statusCode) ? nil : "HTTP status \(http.statusCode)", false)
         } catch {
             // The delegate's reason is clearer than "cancelled".
-            if let reason = delegate.failure { return reason }
-            guard let urlError = error as? URLError else { return String(describing: error) }
+            if let reason = delegate.failure { return (reason, false) }
+            guard let urlError = error as? URLError else { return (String(describing: error), false) }
             let text = "\(urlError.localizedDescription) (URLError \(urlError.code.rawValue))"
+            if urlError.code == .networkConnectionLost { return (text, true) }
             let tlsCodes: Set<URLError.Code> = [
                 .secureConnectionFailed, .serverCertificateUntrusted, .serverCertificateHasBadDate,
                 .serverCertificateHasUnknownRoot, .serverCertificateNotYetValid,
                 .clientCertificateRejected, .clientCertificateRequired,
             ]
-            guard tlsCodes.contains(urlError.code) else { return text }
+            guard tlsCodes.contains(urlError.code) else { return (text, false) }
             if delegate.pinAccepted, !delegate.presentedClientCertificate {
-                return "the server key matched a pin, but TLS still failed after the pin check: \(text)"
+                return ("the server key matched a pin, but TLS still failed after the pin check: \(text)", false)
             }
             if delegate.presentedClientCertificate {
-                return "the server refused the client certificate, or the handshake failed after it was sent: \(text)"
+                return ("the server refused the client certificate, or the handshake failed after it was sent: \(text)", false)
             }
-            return text
+            return (text, false)
         }
+    }
+
+    /// New connections, counted from each task's metrics.
+    final class ConnectionCount: Sendable {
+        private let count = Mutex(0)
+        func add() { count.withLock { $0 += 1 } }
+        var value: Int { count.withLock { $0 } }
     }
 
     // MARK: - Device
@@ -234,6 +309,7 @@ actor EventPoster {
         private let host: String?
         private let port: Int
         private let pins: [Data]?
+        private let connections: ConnectionCount?
         private let failureText = Mutex<String?>(nil)
         private let steps = Mutex<(pin: Bool, clientCertificate: Bool)>((false, false))
 
@@ -244,7 +320,8 @@ actor EventPoster {
         /// A client certificate went to the server.
         var presentedClientCertificate: Bool { steps.withLock { $0.clientCertificate } }
 
-        init(auth: ProviderPolicy.Auth, url: URL, pins: [Data]?) {
+        init(auth: ProviderPolicy.Auth, url: URL, pins: [Data]?, connections: ConnectionCount? = nil) {
+            self.connections = connections
             self.auth = auth
             self.host = url.host()?.lowercased()
             self.port = ListFetcher.port(url)
@@ -255,6 +332,13 @@ actor EventPoster {
             failureText.withLock { $0 = reason }
             Log.event.error("\(reason, privacy: .public)")
             return (.cancelAuthenticationChallenge, nil)
+        }
+
+        func urlSession(_ session: URLSession, task: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
+            // A transaction with no connection (from a cache) does not count.
+            if metrics.transactionMetrics.contains(where: { !$0.isReusedConnection && $0.remoteAddress != nil }) {
+                connections?.add()
+            }
         }
 
         func urlSession(
@@ -299,7 +383,9 @@ actor EventPoster {
                 return refuse("the client certificate's key cannot sign: \(problem)")
             }
             steps.withLock { $0.clientCertificate = true }
-            return (.useCredential, URLCredential(identity: identity, certificates: nil, persistence: .forSession))
+            // Not kept in the session: a long-lived session must pick up a
+            // renewed or replaced certificate on its next connection.
+            return (.useCredential, URLCredential(identity: identity, certificates: nil, persistence: .none))
         }
 
         /// Nil when the identity's private key signs a test digest, else

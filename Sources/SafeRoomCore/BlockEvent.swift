@@ -276,11 +276,16 @@ extension ExtensionStatus {
         public var consecutiveFailures: Int
         public var lastPostAt: Date?
         public var lastError: String?
+        /// New TLS connections to the event server since the start. Far
+        /// fewer than the posts when the server keeps connections open.
+        /// Optional, so a status from an older extension still decodes.
+        public var connectionsOpened: Int?
 
         public init(
             url: String, auth: String, intervalSeconds: Int, queued: Int, posted: Int, dropped: Int,
-            consecutiveFailures: Int, lastPostAt: Date?, lastError: String?
+            consecutiveFailures: Int, lastPostAt: Date?, lastError: String?, connectionsOpened: Int? = nil
         ) {
+            self.connectionsOpened = connectionsOpened
             self.url = url
             self.auth = auth
             self.intervalSeconds = intervalSeconds

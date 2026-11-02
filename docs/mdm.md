@@ -195,6 +195,21 @@ If a post fails, `SafeRoom --status` shows the reason under `events.lastError`, 
 
 If `EventAuth` uses `clientCertificate`, SafeRoom skips certificates that are expired or not yet valid. If more than one certificate matches, it takes the one that expires last. This rule also applies to `Auth`. Before SafeRoom sends a certificate to `EventURL`, it makes a test signature with its key. If the key cannot sign, `events.lastError` starts with "the client certificate's key cannot sign" and gives the keychain error.
 
+### Connections to the event server
+
+SafeRoom keeps its TLS connection to `EventURL` open between posts, if the server allows it. The TLS handshake, the pin check, and the client certificate then happen once per connection, not once per post. SafeRoom opens a new connection after a failed post, every 10 minutes, and whenever the server closes the idle connection. A new client certificate or a new server key therefore takes effect within 10 minutes, with no restart. `events.connectionsOpened` in `SafeRoom --status` counts the new connections. If it is close to `events.posted`, the server closes each connection before the next post.
+
+The server's idle timeout must be longer than `EventIntervalSeconds`, or every post opens a new connection. If the server closes the connection at the moment that SafeRoom sends a post, SafeRoom tries once more at once, on a new connection. In that case the server can receive the same batch twice.
+
+### Event server on AWS API Gateway
+
+These settings follow the AWS documentation as of November 2026. Check the current documentation before you set up the server.
+
+- Use a Regional custom domain name with mutual TLS, and give it a truststore with the CA that issues the certificate in `EventAuth`. Turn off the default `execute-api` endpoint, because it does not ask for a client certificate. API Gateway does not check certificate revocation. To block one Mac, use a Lambda authorizer, or use short-lived certificates.
+- Do not set `EventServerPins`. ACM makes a new key when it renews a certificate, and a pin then refuses every post. Pins are for a server with a certificate that you manage yourself.
+- An HTTP API costs about a third as much per request as a REST API, and supports only TLS 1.2. A REST API can require TLS 1.3, and its idle connection timeout is 310 seconds. AWS documents no idle timeout for HTTP APIs, so read `events.connectionsOpened` after a day.
+- AWS bills each post as one request. A batch of 500 events is about 150 to 250 KB, which is one billing unit of an HTTP API. The posting interval sets the cost: 2,700 Macs at 10 seconds make about 700 million requests a month, and at 60 seconds about 117 million. Blocks do not wait for the interval, so a longer interval delays only the other events.
+
 A slow or failed event server never changes or delays a DNS answer. Event failures do not change the health state. `SafeRoom --status` shows them under `events`.
 
 ## How SafeRoom updates the list
