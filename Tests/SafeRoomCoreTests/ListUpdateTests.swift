@@ -137,3 +137,34 @@ private let fiftyPercent: ProviderPolicy = {
     #expect(ListUpdate.checkHash("<html>error</html>", current: current) == .badHashFile)
     #expect(ListUpdate.checkHash("", current: nil) == .badHashFile)
 }
+
+@Test func notModifiedAfterNewHashIsRejected() {
+    let current = CompiledList(source: list(5))
+    let outcome = ListUpdate.evaluate(
+        status: 304, body: Data(), expectedSHA256: String(repeating: "a", count: 64), current: current,
+        policy: ProviderPolicy())
+    #expect(outcome == .reject(.httpStatus(304)))
+}
+
+@Test func percentCheckSkipsASourceChange() {
+    let current = CompiledList(source: list(200))
+    guard case .reject(.changeTooLarge) = ListUpdate.evaluate(
+        status: 200, body: list(1000, prefix: "n"), expectedSHA256: nil, current: current, policy: fiftyPercent)
+    else { Issue.record("not rejected"); return }
+    guard case .accept = ListUpdate.evaluate(
+        status: 200, body: list(1000, prefix: "n"), expectedSHA256: nil, current: current, policy: fiftyPercent,
+        sameSource: false)
+    else { Issue.record("rejected"); return }
+}
+
+@Test func validatorsBelongToOneList() {
+    let a = CompiledList(source: list(5))
+    let b = CompiledList(source: list(6))
+    var state = FetchState(url: "https://x.example/list", etag: "\"1\"")
+    #expect(!state.servedByURL(a))
+    state.markServed(a)
+    #expect(state.servedByURL(a))
+    #expect(!state.servedByURL(b))
+    state.retarget("https://y.example/list")
+    #expect(!state.servedByURL(a))
+}

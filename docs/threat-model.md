@@ -33,6 +33,8 @@ Each block goes to the unified log with the name, the rule, and the signing ID o
 
 SafeRoom fails open. If it has no list, or if it cannot read a packet, it lets the lookup through. The reason is that a DNS outage stops all work on the Mac, and a gap in blocking is easier to detect and to fix.
 
+`PermitOnly` is the exception. It is in the profile, so it applies from the start of the proxy, with or without a threat list, and SafeRoom denies every name that is not permitted. A packet that SafeRoom cannot read still goes through.
+
 | Event | Result | Detection |
 |---|---|---|
 | No list was ever loaded | Every lookup passes. | Jamf extension attribute: `NO LIST`. |
@@ -107,11 +109,11 @@ The behavior on a managed Mac whose app has not seen the MDM configuration yet i
 
 A token saved in the app has the same problem as a token in a profile: any local user can read it.
 
-A development build also has buttons that turn the proxy on and off on any Mac, and a `-TestPolicy` launch argument that replaces the policy. A fleet build has neither. `make release` builds a fleet build. `make release DEV_CONTROLS=1` builds a development build. Never deploy a development build to a fleet.
+A development build also has buttons that turn the proxy on and off on any Mac, and a `-TestPolicy` launch argument that replaces the policy. A fleet build has neither. `make release` builds a fleet build. `make release DEV_CONTROLS=1` builds a development build, marked with `SafeRoomDevControls` in its Info.plist, and `make package` refuses to package it. Never deploy a development build to a fleet.
 
 ## Privacy
 
-SafeRoom logs only blocked lookups. It does not log the other lookups. The log entries are public in the unified log, so that an EDR or a log forwarder can collect them. Any administrator on the Mac can read them.
+SafeRoom logs only blocked lookups, or in monitor mode the lookups that it would have blocked. It does not log the other lookups. With `EventAllQueries`, it sends every answered lookup to the event server: a full record of the names that each Mac looks up, with the app that asked. Only the event server receives them, not the unified log. The log entries are public in the unified log, so that an EDR or a log forwarder can collect them. Any administrator on the Mac can read them.
 
 ## Supply chain
 

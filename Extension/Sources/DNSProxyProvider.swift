@@ -9,7 +9,8 @@ import Synchronization
 /// decisions come from `Blocklist.decide` in SafeRoomCore.
 ///
 /// Fail-open: until a list loads, the store holds an empty list and every
-/// query is forwarded. A crash is not covered. While launchd restarts the
+/// query is forwarded, except that `PermitOnly` still denies names that
+/// are not permitted. A crash is not covered. While launchd restarts the
 /// extension, queries in that gap fail (docs/threat-model.md).
 final class DNSProxyProvider: NEDNSProxyProvider, NEAppProxyUDPFlowHandling, @unchecked Sendable {
     private let filter = DNSFilter(store: BlocklistStore())
@@ -35,7 +36,7 @@ final class DNSProxyProvider: NEDNSProxyProvider, NEAppProxyUDPFlowHandling, @un
         // a changed configuration takes effect when the proxy restarts.
         let policy = ProviderPolicy(options?["VendorData"] as? [String: Any] ?? [:])
         Log.provider.notice(
-            "policy: listURL=\(policy.listURL.map(ExtensionStatus.PolicySummary.redacted) ?? "none", privacy: .public) listPath=\(policy.listPath, privacy: .public) sha256URL=\(policy.listSHA256URL != nil) auth=\(policy.auth.description, privacy: .public) refresh=\(policy.refreshInterval.components.seconds)s maxChange=\(policy.maxChangePercent)% allow=\(policy.allowList.count) neverBlockHosts=\(policy.neverBlockHosts.count) eventURL=\(policy.eventURL.map(ExtensionStatus.PolicySummary.redacted) ?? "none", privacy: .public) eventAuth=\(policy.eventAuth.description, privacy: .public) eventServerPins=\(policy.eventServerPins.map { String($0.count) } ?? "none", privacy: .public)")
+            "policy: listURL=\(policy.listURL.map(ExtensionStatus.PolicySummary.redacted) ?? "none", privacy: .public) listPath=\(policy.listPath, privacy: .public) sha256URL=\(policy.listSHA256URL != nil) auth=\(policy.auth.description, privacy: .public) refresh=\(policy.refreshInterval.components.seconds)s maxChange=\(policy.maxChangePercent)% allow=\(policy.allowList.count) neverBlockHosts=\(policy.neverBlockHosts.count) eventURL=\(policy.eventURL.map(ExtensionStatus.PolicySummary.redacted) ?? "none", privacy: .public) eventAuth=\(policy.eventAuth.description, privacy: .public) eventServerPins=\(policy.eventServerPins.map { String($0.count) } ?? "none", privacy: .public) eventAllQueries=\(policy.eventAllQueries) monitorOnly=\(policy.monitorOnly) permitOnly=\(policy.permitOnly) permitList=\(policy.permitList.count)")
         for problem in policy.ignored {
             Log.provider.error("policy value ignored: \(Log.clean(problem), privacy: .public)")
         }
@@ -44,6 +45,9 @@ final class DNSProxyProvider: NEDNSProxyProvider, NEAppProxyUDPFlowHandling, @un
         Task { await loader.start() }
         let poster = EventPoster(policy: policy, buffer: events, version: Self.version)
         events.setEnabled(poster != nil)
+        filter.configure(monitorOnly: policy.monitorOnly, reportAllQueries: poster != nil && policy.eventAllQueries)
+        if policy.monitorOnly { Log.provider.notice("MonitorOnly: nothing is blocked") }
+        if policy.permitOnly { Log.provider.notice("PermitOnly: only \(policy.permitList.count) PermitList entries, AllowList, and the never-block set resolve") }
         self.poster.withLock { $0 = poster }
         if let poster { Task { await poster.start() } }
         let startedAt = Date()

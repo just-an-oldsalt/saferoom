@@ -68,6 +68,10 @@ final class UDPRelay: @unchecked Sendable {
             Log.blockedQuery(name: name, type: type, rule: rule, app: app, transport: "udp")
             events.add(.init(query: name, type: type, rule: rule, app: app, transport: "udp"))
             writeToClient(reply, from: endpoint)
+        case .deny(let reply, let name, let type):
+            Log.denied(name: name, type: type, monitoring: false, app: app, transport: "udp")
+            events.add(.init(denied: name, type: type, app: app, transport: "udp"))
+            writeToClient(reply, from: endpoint)
         case .forward:
             UpstreamPool.shared.send(packet, to: endpoint) { [self] response in
                 queue.async { [self] in
@@ -82,11 +86,26 @@ final class UDPRelay: @unchecked Sendable {
     private func handleResponse(_ packet: [UInt8], from endpoint: NWEndpoint) {
         switch filter.decide(response: packet) {
         case .pass:
+            if filter.reportsAllQueries, let event = BlockEvent(allowed: packet, app: app, transport: "udp") {
+                events.add(event)
+            }
             writeToClient(packet, from: endpoint)
         case .block(let reply, let name, let reason):
             Log.blockedResponse(name: name, reason: reason, app: app, transport: "udp")
             events.add(.init(answer: name, reason: reason, app: app, transport: "udp"))
             writeToClient(reply, from: endpoint)
+        case .monitor(let name, let type, let reason):
+            Log.wouldBlock(name: name, reason: reason, app: app, transport: "udp")
+            events.add(.init(wouldBlock: name, type: type, reason: reason, app: app, transport: "udp"))
+            writeToClient(packet, from: endpoint)
+        case .deny(let reply, let name, let type):
+            Log.denied(name: name, type: type, monitoring: false, app: app, transport: "udp")
+            events.add(.init(denied: name, type: type, app: app, transport: "udp"))
+            writeToClient(reply, from: endpoint)
+        case .monitorDeny(let name, let type):
+            Log.denied(name: name, type: type, monitoring: true, app: app, transport: "udp")
+            events.add(.init(denied: name, type: type, monitoring: true, app: app, transport: "udp"))
+            writeToClient(packet, from: endpoint)
         }
     }
 

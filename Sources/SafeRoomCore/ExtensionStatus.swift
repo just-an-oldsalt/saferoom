@@ -54,6 +54,13 @@ public struct ExtensionStatus: Codable, Sendable, Equatable {
         public var eventServerPins: Int?
         /// "app" when the SafeRoom app wrote the policy, nil for MDM.
         public var configuredBy: String?
+        /// True in monitor mode: nothing is blocked. Nil otherwise.
+        public var monitorOnly: Bool?
+        /// True when every answered lookup goes to the event URL. Nil otherwise.
+        public var eventAllQueries: Bool?
+        /// The number of `PermitList` entries when `PermitOnly` is on. Nil
+        /// otherwise.
+        public var permitListCount: Int?
     }
 
     public struct ListSummary: Codable, Sendable, Equatable {
@@ -91,6 +98,12 @@ public struct ExtensionStatus: Codable, Sendable, Equatable {
         public var blockedQueries = 0
         public var blockedAnswers = 0
         public var learnedBlocks = 0
+        /// Lookups that monitor mode let through but would have blocked.
+        /// Optional, so a status from an older extension still decodes.
+        public var wouldBlock: Int?
+        /// `PermitOnly`: lookups of names not on the permit list, denied or,
+        /// in monitor mode, let through.
+        public var notPermitted: Int?
 
         public init() {}
     }
@@ -110,7 +123,10 @@ extension ExtensionStatus.PolicySummary {
             eventURL: policy.eventURL.map(Self.redacted),
             eventAuth: policy.eventURL != nil ? policy.eventAuth.description : nil,
             eventServerPins: policy.eventURL != nil ? policy.eventServerPins?.count : nil,
-            configuredBy: policy.configuredByApp ? ProviderPolicy.configuredByApp : nil)
+            configuredBy: policy.configuredByApp ? ProviderPolicy.configuredByApp : nil,
+            monitorOnly: policy.monitorOnly ? true : nil,
+            eventAllQueries: policy.eventURL != nil && policy.eventAllQueries ? true : nil,
+            permitListCount: policy.permitOnly ? policy.permitList.count : nil)
     }
 
     public static func redacted(_ url: URL) -> String {
@@ -171,12 +187,17 @@ extension ExtensionStatus {
         let health = health(now: now)
         var parts: [String] = []
         if let list { parts.append("\(list.domainRules) domains, \(list.v4Ranges + list.v6Ranges) ranges") }
+        if let permit = policy.permitListCount { parts.append("permit only (\(permit) names)") }
         if let lastSuccessAt { parts.append("list checked \(Self.stamp(lastSuccessAt))") }
         if consecutiveFailures > 0, let lastAttempt {
             parts.append("\(consecutiveFailures) failed: \(lastAttempt.detail ?? lastAttempt.result.rawValue)")
         }
         parts.append("version \(version)")
-        return "\(health.rawValue): \(parts.joined(separator: ", "))"
+        // A Mac that blocks nothing must not land in the OK smart group. A
+        // list problem keeps its own word: it is the one to fix first.
+        let state = policy.monitorOnly == true && health == .ok ? "MONITOR" : health.rawValue
+        if policy.monitorOnly == true, health != .ok { parts.insert("MONITOR ONLY", at: 0) }
+        return "\(state): \(parts.joined(separator: ", "))"
     }
 
     static func stamp(_ date: Date) -> String {
@@ -206,6 +227,8 @@ public final class FilterCounters: Sendable {
     let blockedQueries = Atomic<Int>(0)
     let blockedAnswers = Atomic<Int>(0)
     let learnedBlocks = Atomic<Int>(0)
+    let wouldBlock = Atomic<Int>(0)
+    let notPermitted = Atomic<Int>(0)
 
     public init() {}
 
@@ -215,6 +238,10 @@ public final class FilterCounters: Sendable {
         v.blockedQueries = blockedQueries.load(ordering: .relaxed)
         v.blockedAnswers = blockedAnswers.load(ordering: .relaxed)
         v.learnedBlocks = learnedBlocks.load(ordering: .relaxed)
+        let would = wouldBlock.load(ordering: .relaxed)
+        v.wouldBlock = would > 0 ? would : nil
+        let denied = notPermitted.load(ordering: .relaxed)
+        v.notPermitted = denied > 0 ? denied : nil
         return v
     }
 }

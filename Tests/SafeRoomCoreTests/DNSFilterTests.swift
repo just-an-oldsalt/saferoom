@@ -141,3 +141,160 @@ private let list = makeFilter()
     p += [3] + Array("a.b".utf8) + [0, 0, 16, 0, 1, 0, 0, 0, 60, 0, 1, 0]
     guard case .block = makeFilter().decide(response: p) else { Issue.record("passed"); return }
 }
+
+// MARK: - Monitor mode
+
+@Test func monitorForwardsListedQueries() {
+    let filter = makeFilter()
+    filter.configure(monitorOnly: true, reportAllQueries: false)
+    #expect(filter.decide(query: query("a.evil.com", type: 28)) == .forward)
+    // The answer reports it once, as the query name with its type.
+    guard case .monitor(let name, let type, let reason) = filter.decide(response: response("a.evil.com", a: [192, 0, 2, 1])) else {
+        Issue.record("not monitored"); return
+    }
+    #expect(name == "a.evil.com")
+    #expect(type == 1)
+    let event = BlockEvent(wouldBlock: name, type: type, reason: reason, app: "app", transport: "udp")
+    #expect(event.kind == .query)
+    #expect(event.action == .wouldBlock)
+    #expect(event.rule == "evil.com")
+    #expect(filter.counters.values.wouldBlock == 1)
+    #expect(filter.counters.values.blockedAnswers == 0)
+}
+
+@Test func monitorPassesListedAddressesWithoutLearning() {
+    let filter = makeFilter()
+    filter.configure(monitorOnly: true, reportAllQueries: false)
+    guard case .monitor(_, _, .address(let address)) = filter.decide(response: response("shady.org", a: [198, 51, 100, 7])) else {
+        Issue.record("not monitored"); return
+    }
+    #expect(address.description == "198.51.100.7")
+    // Nothing learned, so the next query is not blocked either.
+    #expect(filter.decide(query: query("shady.org", type: 28)) == .forward)
+    let event = BlockEvent(wouldBlock: "shady.org", type: 1, reason: .address(address), app: "app", transport: "udp")
+    #expect(event.kind == .answer)
+    #expect(event.action == .wouldBlock)
+}
+
+@Test func monitorKeepsAllowList() {
+    let filter = makeFilter()
+    filter.configure(monitorOnly: true, reportAllQueries: false)
+    #expect(filter.decide(response: response("www.partner.com", a: [198, 51, 100, 7])) == .pass)
+}
+
+@Test func blockingResumesWhenMonitorIsOff() {
+    let filter = makeFilter()
+    filter.configure(monitorOnly: true, reportAllQueries: false)
+    filter.configure(monitorOnly: false, reportAllQueries: false)
+    guard case .block = filter.decide(query: query("a.evil.com")) else { Issue.record("not blocked"); return }
+}
+
+// MARK: - All queries
+
+@Test func allowedEventCarriesTheAnswer() throws {
+    let event = try #require(BlockEvent(allowed: response("www.example.org", alias: "edge.example.net", a: [192, 0, 2, 1]),
+                                        app: "com.example.app", transport: "tcp"))
+    #expect(event.kind == .query)
+    #expect(event.action == .allowed)
+    #expect(event.name == "www.example.org")
+    #expect(event.type == 1)
+    #expect(event.addresses == ["192.0.2.1"])
+    #expect(event.aliases == ["edge.example.net"])
+    #expect(event.rule == nil)
+    #expect(BlockEvent(allowed: query("www.example.org"), app: "a", transport: "udp") == nil)
+}
+
+// MARK: - PermitOnly
+
+private func makePermitFilter() -> DNSFilter {
+    let store = BlocklistStore()
+    store.replace(Blocklist(
+        list: CompiledList(source: Array("evil.com\nbad.work.com\n198.51.100.0/24".utf8)),
+        allow: [DomainRule(name: "partner.com", match: .subtree)],
+        neverBlock: ["apple.com"],
+        permit: [DomainRule(name: "work.com", match: .subtree), DomainRule(name: "exact.org", match: .exact)]))
+    return DNSFilter(store: store)
+}
+
+@Test func permitVerdictOrder() {
+    let b = Blocklist(
+        list: CompiledList(source: Array("evil.com\nbad.work.com".utf8)),
+        allow: [DomainRule(name: "partner.com", match: .subtree)], neverBlock: ["apple.com"],
+        permit: [DomainRule(name: "work.com", match: .subtree), DomainRule(name: "evil.com", match: .subtree)])
+    #expect(b.verdict(for: "www.work.com") == .pass)
+    #expect(b.verdict(for: "bad.work.com") == .blocked(rule: "bad.work.com"))
+    // The threat list outranks the permit list.
+    #expect(b.verdict(for: "evil.com") == .blocked(rule: "evil.com"))
+    #expect(b.verdict(for: "x.partner.com") == .allowed(rule: "partner.com"))
+    #expect(b.verdict(for: "swscan.apple.com") == .allowed(rule: "apple.com"))
+    #expect(b.verdict(for: "example.org") == .notPermitted)
+    #expect(b.verdict(for: "work.com.example.org") == .notPermitted)
+    // Off without a permit list.
+    #expect(Blocklist(list: .empty).verdict(for: "example.org") == .pass)
+}
+
+@Test func unpermittedQueryIsDenied() {
+    let filter = makePermitFilter()
+    guard case .deny(let reply, let name, let type) = filter.decide(query: query("Example.ORG", type: 28)) else {
+        Issue.record("not denied"); return
+    }
+    #expect(name == "example.org" && type == 28)
+    #expect(reply[3] & 0x0F == 3)
+    #expect(filter.counters.values.notPermitted == 1)
+    #expect(filter.counters.values.blockedQueries == 0)
+}
+
+@Test func permittedQueriesForward() {
+    let filter = makePermitFilter()
+    #expect(filter.decide(query: query("mail.work.com")) == .forward)
+    #expect(filter.decide(query: query("partner.com")) == .forward)
+    #expect(filter.decide(query: query("gdmf.apple.com")) == .forward)
+    #expect(filter.counters.values.notPermitted == nil)
+}
+
+@Test func permittedNameOnTheThreatListIsBlocked() {
+    let filter = makePermitFilter()
+    guard case .block(_, _, _, let rule) = filter.decide(query: query("x.bad.work.com")) else {
+        Issue.record("not blocked"); return
+    }
+    #expect(rule == "bad.work.com")
+}
+
+@Test func permittedNameMayAnswerThroughAnyCDN() {
+    let filter = makePermitFilter()
+    #expect(filter.decide(response: response("www.work.com", alias: "edge.cdn.example", a: [192, 0, 2, 1])) == .pass)
+    // The threat list still checks the answer.
+    guard case .block = filter.decide(response: response("www.work.com", alias: "evil.com", a: [192, 0, 2, 1])) else {
+        Issue.record("listed alias passed"); return
+    }
+    guard case .block = filter.decide(response: response("api.work.com", a: [198, 51, 100, 9])) else {
+        Issue.record("listed address passed"); return
+    }
+}
+
+@Test func monitorReportsUnpermittedNames() {
+    let filter = makePermitFilter()
+    filter.configure(monitorOnly: true, reportAllQueries: false)
+    #expect(filter.decide(query: query("example.org")) == .forward)
+    #expect(filter.decide(response: response("example.org", a: [192, 0, 2, 1])) == .monitorDeny(name: "example.org", type: 1))
+    #expect(filter.decide(response: response("www.work.com", a: [192, 0, 2, 1])) == .pass)
+    #expect(filter.counters.values.notPermitted == 1)
+}
+
+@Test func monitorReportsThreatBeforeDenial() {
+    let filter = makePermitFilter()
+    filter.configure(monitorOnly: true, reportAllQueries: false)
+    guard case .monitor(_, _, .address) = filter.decide(response: response("shady.org", a: [198, 51, 100, 7])) else {
+        Issue.record("threat not reported"); return
+    }
+    #expect(filter.counters.values.notPermitted == nil)
+}
+
+@Test func unpermittedAnswerIsDeniedWhenTheQuerySlipsThrough() {
+    let filter = makePermitFilter()
+    guard case .deny(let reply, let name, _) = filter.decide(response: response("example.org", a: [192, 0, 2, 1])) else {
+        Issue.record("not denied"); return
+    }
+    #expect(name == "example.org")
+    #expect(reply[3] & 0x0F == 3)
+}

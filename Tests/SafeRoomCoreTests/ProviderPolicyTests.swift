@@ -101,3 +101,44 @@ func listPathOutsideFolderIgnored(_ path: String) {
     #expect(!policy.ignored.contains { $0.contains("secret") })
     #expect(ProviderPolicy(["AllowList": ["a.example"]]).ignored.isEmpty)
 }
+
+@Test func permitOnlyKeys() {
+    let p = ProviderPolicy(["PermitOnly": true, "PermitList": ["work.com", "=login.example.net", "bad entry!"]])
+    #expect(p.permitOnly)
+    #expect(p.permitList == [
+        DomainRule(name: "work.com", match: .subtree), DomainRule(name: "login.example.net", match: .exact),
+    ])
+    #expect(p.ignored.contains { $0.hasPrefix("PermitList entry") })
+    let b = p.blocklist(.empty)
+    #expect(b.verdict(for: "www.work.com") == .pass)
+    #expect(b.verdict(for: "login.example.net") == .pass)
+    #expect(b.verdict(for: "x.login.example.net") == .notPermitted)
+    #expect(b.verdict(for: "apple.com") == .allowed(rule: "apple.com"))
+    #expect(ExtensionStatus.PolicySummary(p).permitListCount == 2)
+}
+
+@Test func permitOnlyNeedsAPermitList() {
+    for config: [String: Any] in [["PermitOnly": true], ["PermitOnly": true, "PermitList": ["not a name!"]]] {
+        let p = ProviderPolicy(config)
+        #expect(!p.permitOnly)
+        #expect(p.ignored.contains { $0.hasPrefix("PermitOnly: needs a PermitList") })
+        #expect(p.blocklist(.empty).verdict(for: "example.org") == .pass)
+    }
+}
+
+@Test func permitListAloneChangesNothing() {
+    let p = ProviderPolicy(["PermitList": ["work.com"]])
+    #expect(!p.permitOnly)
+    #expect(p.blocklist(.empty).verdict(for: "example.org") == .pass)
+    #expect(ExtensionStatus.PolicySummary(p).permitListCount == nil)
+}
+
+@Test func permitOnlyKeepsPolicyHosts() {
+    let p = ProviderPolicy([
+        "PermitOnly": true, "PermitList": ["work.com"],
+        "ListURL": "https://lists.example.net/list.txt", "EventURL": "https://events.example.net/e",
+    ])
+    let b = p.blocklist(.empty)
+    #expect(b.verdict(for: "lists.example.net") == .allowed(rule: "lists.example.net"))
+    #expect(b.verdict(for: "events.example.net") == .allowed(rule: "events.example.net"))
+}

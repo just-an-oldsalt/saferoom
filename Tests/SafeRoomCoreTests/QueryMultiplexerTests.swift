@@ -107,3 +107,16 @@ private func answer(to sent: [UInt8], name: String? = nil) -> [UInt8] {
     var mux = QueryMultiplexer<Int>()
     #expect(mux.register([0, 1, 2], context: 0) == nil)
 }
+
+/// An answer with no question never matches, not even an error: matching
+/// by ID alone would let a forged REFUSED with a guessed ID fail a lookup.
+@Test func answerWithoutQuestionDoesNotMatch() throws {
+    var mux = QueryMultiplexer<Int>()
+    let q: [UInt8] = [0x12, 0x34, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0x61, 0, 0, 1, 0, 1]
+    let registered = mux.register(q, context: 7)
+    let sent = try #require(registered)
+    let resolved = mux.resolve([sent[0], sent[1], 0x81, 0x05, 0, 0, 0, 0, 0, 0, 0, 0])
+    #expect(resolved == nil)
+    #expect(QueryMultiplexer<Int>.canMatch(q))
+    #expect(!QueryMultiplexer<Int>.canMatch([1, 2, 3]))
+}

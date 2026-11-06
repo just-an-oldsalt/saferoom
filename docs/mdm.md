@@ -59,6 +59,10 @@ To change the policy, edit the profile in Jamf. The extension reads the policy a
 | `EventURL` | string | none | HTTPS URL that receives block events as JSON POST requests. If it is not set, SafeRoom posts no events. See [Block events](#block-events). |
 | `EventAuth` | dictionary | none | How to authenticate to `EventURL`. Same form as `Auth`, with its own token. |
 | `EventIntervalSeconds` | integer | 10 | Time between event posts. The range is 1 to 3600. |
+| `EventAllQueries` | boolean | false | Sends every answered lookup to `EventURL`, not only blocks. Needs `EventURL`. See [All lookups](#all-lookups). |
+| `MonitorOnly` | boolean | false | Blocks nothing, and reports each lookup that SafeRoom would have blocked. See [Monitor mode](#monitor-mode). |
+| `PermitOnly` | boolean | false | Answers NXDOMAIN for every name that is not on `PermitList`, `AllowList`, or the never-block set. Needs a `PermitList` with at least one usable entry. See [Permit-only mode](#permit-only-mode). |
+| `PermitList` | array of strings | empty | With `PermitOnly`, the names that may resolve. The forms are the same as in the blocklist. The threat list still applies to these names. |
 | `EventServerPins` | array of strings | none | Pins for the `EventURL` server's key. If set, SafeRoom accepts the server only if its key matches a pin. See [Server pins](#server-pins). |
 
 `ListURL`, `ListSHA256URL`, and `EventURL` must use HTTPS. Plain HTTP works only for `localhost` and `127.0.0.1`, for tests.
@@ -82,9 +86,9 @@ SafeRoom also sends the token with the hash file download if the hash file is on
 
 ## Block events
 
-If `EventURL` is set, SafeRoom sends each blocked query and each blocked answer to that URL. The event has the same data as the line in the `block` log category.
+If `EventURL` is set, SafeRoom sends each blocked query and each blocked answer to that URL. The event has the same data as the line in the `block` log category. With `MonitorOnly`, it sends the lookups that it would have blocked. With `PermitOnly`, it sends each name that is not on the permit list. With `EventAllQueries`, it also sends every other answered lookup.
 
-SafeRoom collects the events in memory and sends them in batches. Every `EventIntervalSeconds`, it sends the events that are waiting, at most 500 in one request. The request is a `POST` with `Content-Type: application/json`. If `EventAuth` has the type `bearer`, the request carries `Authorization: Bearer <Token>`. The `clientCertificate` type also works, with the same keys as in `Auth`.
+SafeRoom collects the events in memory and sends them in batches, at most 500 in one request. A threat-list match (`blocked` or `wouldBlock`) does not wait. SafeRoom sends it within a quarter of a second, and it goes first in the request. Other events (`denied`, `wouldDeny`, and `allowed`) wait for the next post, every `EventIntervalSeconds`. If 500 events are waiting before the interval ends, SafeRoom sends them at once. The request is a `POST` with `Content-Type: application/json`. If `EventAuth` has the type `bearer`, the request carries `Authorization: Bearer <Token>`. The `clientCertificate` type also works, with the same keys as in `Auth`.
 
 This is an example of a request body:
 
@@ -110,18 +114,66 @@ This is an example of a request body:
 | `device.serialNumber` | The hardware serial number, the same as in the MDM inventory. Missing if SafeRoom cannot read it. |
 | `device.version` | The SafeRoom version and build. |
 | `dropped` | The number of events that SafeRoom lost since the previous request, because too many events were waiting. |
-| `kind` | `query` if the query name is on the list. `answer` if the upstream answer named a listed alias or address. |
+| `action` | `blocked` if the threat list matched and SafeRoom answered NXDOMAIN. `wouldBlock` if the threat list matched and `MonitorOnly` let the lookup through. `denied` if the name is not on the permit list and SafeRoom answered NXDOMAIN. `wouldDeny` if the name is not on the permit list and `MonitorOnly` let the lookup through. `allowed` for a lookup that nothing matched, sent only with `EventAllQueries`. |
+| `kind` | `query` if the query name is on the list, and for every `denied`, `wouldDeny`, and `allowed` event. `answer` if the upstream answer named a listed alias or address. |
 | `name` | The name in the query. |
 | `type` | The DNS record type of the query, as a number. Only for `query`. |
 | `rule` | The list rule that matched. |
 | `alias` | The listed CNAME or SVCB target in the answer. |
 | `address` | The listed address in the answer. |
+| `addresses` | `allowed` only: every A, AAAA, and SVCB hint address in the answer. Missing if the answer has none, for example an NXDOMAIN from the resolver. |
+| `aliases` | `allowed` only: every CNAME and SVCB target in the answer. Missing if there are none. |
 | `app` | The code signing identifier of the app that asked. |
 | `transport` | `udp` or `tcp`. |
 
-The server must reply with a status from 200 to 299. SafeRoom does not read the reply body. If a request fails, SafeRoom keeps the events and tries again after 1 minute, then 2, 4, 8, and so on, up to 10 minutes. Each wait is longer or shorter by up to a quarter, at random, so that a fleet of Macs does not retry at the same moment after an outage. SafeRoom never follows a redirect from `EventURL`.
+The server must reply with a status from 200 to 299. SafeRoom does not read the reply body. If a request fails, SafeRoom keeps the events and tries again after 1 minute, then 2, 4, 8, and so on, up to 10 minutes. Threat-list events also wait for these retries, so a server that is down does not get a request every second. Each wait is longer or shorter by up to a quarter, at random, so that a fleet of Macs does not retry at the same moment after an outage. SafeRoom never follows a redirect from `EventURL`.
 
-SafeRoom keeps at most 10,000 events in memory. If more are waiting, for example while the server is down, SafeRoom drops the oldest tenth and counts them in `dropped`. Events are not written to disk. When the proxy stops, for example for an upgrade, SafeRoom makes one last request with the waiting events and waits at most 2 seconds for it. If that request fails, the events are lost.
+SafeRoom keeps at most 10,000 events in memory. If more are waiting, for example while the server is down, SafeRoom drops the oldest tenth and counts them in `dropped`. It drops other events before threat-list events, so a flood of `allowed` events cannot push out a block. Events are not written to disk. When the proxy stops, for example for an upgrade, SafeRoom lets a request in progress finish, then makes one last request with the waiting events. Both together get at most 2 seconds. If that request fails, the events are lost.
+
+### Monitor mode
+
+With `MonitorOnly` set to `true`, SafeRoom blocks nothing. It checks each answer against the list, and it reports each lookup that it would have blocked: an event with `action` `wouldBlock`, and a `would block` line in the `block` log category. Use it to try a new list, or for a first rollout, before you turn blocking on.
+
+- SafeRoom reports each such lookup once, when the answer comes back. A lookup with no answer, for example because the resolver timed out, is not reported.
+- The allow list and the never-block set apply, as when SafeRoom blocks.
+- SafeRoom does not learn names from listed addresses in monitor mode (docs/list-format.md). An AAAA lookup for a host listed only by its IPv4 address is therefore not reported.
+- The window shows "Monitoring only". `SafeRoom --jamf` starts its line with `MONITOR` instead of `OK`, so a Mac that blocks nothing stays out of an "OK" smart group, and `SafeRoom --status` shows `policy.monitorOnly` and `counters.wouldBlock`.
+
+`blocked` events and `block` log lines do not appear in monitor mode, so a SIEM rule that alerts on them stays quiet. Write a separate rule for `wouldBlock` if you want one.
+
+### Permit-only mode
+
+With `PermitOnly` set to `true`, SafeRoom answers NXDOMAIN for every name that is not permitted. The threat list stays in force. SafeRoom checks each query name in this order:
+
+1. If the name is on `AllowList`, the never-block set, or is the host of `ListURL`, `ListSHA256URL`, or `EventURL`, SafeRoom lets it through. The threat list does not apply to it.
+2. If the name is on the threat list, SafeRoom blocks it, and sends a `blocked` event at once. This also applies to a name on `PermitList`.
+3. If the name is on `PermitList`, SafeRoom lets it through.
+4. If not, SafeRoom answers NXDOMAIN, sends a `denied` event, and writes a `denied query` line in the `block` log category.
+
+Only the query name must be on `PermitList`. SafeRoom checks the CNAME targets and addresses in the answer against the threat list, but not against `PermitList`. Most sites answer through a CDN name, for example `www.example.com` as an alias of `example.com.cdn.example.net`, and a check of the alias would break them.
+
+Use `AllowList` for a name that the threat list matches by mistake. Use `PermitList` for every other name that the Macs need. If `PermitOnly` is `true` and `PermitList` has no usable entry, SafeRoom ignores `PermitOnly` and logs the reason, because a profile mistake must not cut every Mac off.
+
+Permit-only mode works with no threat list loaded. In that case, `SafeRoom --jamf` reports `NO LIST`, and the window says that only names on the permit list resolve.
+
+Names that a permit list often misses:
+
+- Your internal domains, for example the Active Directory domain and its `_ldap._tcp` and `_kerberos._tcp` service records.
+- Reverse lookups (`in-addr.arpa` and `ip6.arpa`). Most apps work without them, but logs and some tools are slower. Do not permit all of `arpa`, because a name under it can carry data out of the network.
+- Certificate revocation servers of other certificate authorities, for example `ocsp.digicert.com`. macOS continues if they fail, but each check waits for the timeout.
+- Printers, conferencing services, and the identity provider if it is not Okta.
+
+To build the list, start in monitor mode. With `MonitorOnly` and `PermitOnly` both `true`, SafeRoom blocks nothing. It sends a `wouldDeny` event for each name that is not permitted, and a `wouldBlock` event for each threat-list match. Collect the `wouldDeny` names for a week, add the ones you need to `PermitList`, then set `MonitorOnly` to `false`.
+
+The window shows "Permit only" in the policy section, and the count of denied lookups replaces the IP ranges count. `SafeRoom --jamf` adds "permit only (N names)" to its line. `SafeRoom --status` shows `policy.permitListCount` and `counters.notPermitted`.
+
+### All lookups
+
+With `EventAllQueries` set to `true`, SafeRoom sends every answered lookup to `EventURL`, from every app, as an event with `action` `allowed`. The event holds the name, the record type, the addresses and aliases in the answer, and the app that asked. Blocked lookups keep their own events, so each lookup appears once. A lookup with no answer is not sent.
+
+This is many more events. A Mac in use makes several thousand lookups an hour. Size the server for that, and set `EventIntervalSeconds` to 60 or less, so that the 10,000-event buffer does not fill while the server is down. `events.dropped` in `SafeRoom --status` shows lost events.
+
+The events are a full record of the names that each Mac looks up. Treat them as you treat browser history. Allowed lookups are not written to the unified log.
 
 ### Server pins
 
@@ -143,6 +195,21 @@ If a post fails, `SafeRoom --status` shows the reason under `events.lastError`, 
 
 If `EventAuth` uses `clientCertificate`, SafeRoom skips certificates that are expired or not yet valid. If more than one certificate matches, it takes the one that expires last. This rule also applies to `Auth`. Before SafeRoom sends a certificate to `EventURL`, it makes a test signature with its key. If the key cannot sign, `events.lastError` starts with "the client certificate's key cannot sign" and gives the keychain error.
 
+### Connections to the event server
+
+SafeRoom keeps its TLS connection to `EventURL` open between posts, if the server allows it. The TLS handshake, the pin check, and the client certificate then happen once per connection, not once per post. SafeRoom opens a new connection after a failed post, every 10 minutes, and whenever the server closes the idle connection. A new client certificate or a new server key therefore takes effect within 10 minutes, with no restart. `events.connectionsOpened` in `SafeRoom --status` counts the new connections. If it is close to `events.posted`, the server closes each connection before the next post.
+
+The server's idle timeout must be longer than `EventIntervalSeconds`, or every post opens a new connection. If the server closes the connection at the moment that SafeRoom sends a post, SafeRoom tries once more at once, on a new connection. In that case the server can receive the same batch twice.
+
+### Event server on AWS API Gateway
+
+These settings follow the AWS documentation as of November 2026. Check the current documentation before you set up the server.
+
+- Use a Regional custom domain name with mutual TLS, and give it a truststore with the CA that issues the certificate in `EventAuth`. Turn off the default `execute-api` endpoint, because it does not ask for a client certificate. API Gateway does not check certificate revocation. To block one Mac, use a Lambda authorizer, or use short-lived certificates.
+- Do not set `EventServerPins`. ACM makes a new key when it renews a certificate, and a pin then refuses every post. Pins are for a server with a certificate that you manage yourself.
+- An HTTP API costs about a third as much per request as a REST API, and supports only TLS 1.2. A REST API can require TLS 1.3, and its idle connection timeout is 310 seconds. AWS documents no idle timeout for HTTP APIs, so read `events.connectionsOpened` after a day.
+- AWS bills each post as one request. A batch of 500 events is about 150 to 250 KB, which is one billing unit of an HTTP API. The posting interval sets the cost: 2,700 Macs at 10 seconds make about 700 million requests a month, and at 60 seconds about 117 million. Blocks do not wait for the interval, so a longer interval delays only the other events.
+
 A slow or failed event server never changes or delays a DNS answer. Event failures do not change the health state. `SafeRoom --status` shows them under `events`.
 
 ## How SafeRoom updates the list
@@ -158,7 +225,7 @@ With `RefreshSeconds` at 300, `STALE` starts after 15 minutes with no successful
 
 A server can publish the hash file and the list a few minutes apart, for example because a CDN caches each file for 5 minutes. During that time the downloaded list does not match the new hash. SafeRoom rejects it, keeps the current list, reports `DEGRADED`, and tries again after 1 minute.
 
-The percentage rule is off by default. If you turn it on, a rejection does not clear by itself. When the feed changes size on purpose, for example because a source was added, every Mac keeps the old list until you raise `MaxChangePercent` in the profile. The rule skips lists with fewer than 100 entries.
+The percentage rule is off by default. If you turn it on, a rejection does not clear by itself. When the feed changes size on purpose, for example because a source was added, every Mac keeps the old list until you raise `MaxChangePercent` in the profile. The rule skips lists with fewer than 100 entries. It also skips the first download after a change of `ListURL`, because it compares a feed only with itself.
 
 ## Changing the policy
 
@@ -182,10 +249,11 @@ To report SafeRoom health in Jamf inventory, add the rendered copy of [`mdm/jamf
 
 | State | Meaning |
 |---|---|
-| `OK` | A list is loaded, and the last check succeeded. |
+| `OK` | A list is loaded, and the last check succeeded. With `PermitOnly`, the line also says "permit only (N names)". |
+| `MONITOR` | As `OK`, but `MonitorOnly` is on: nothing is blocked. If the list also has a problem, the line starts with that state and then says "MONITOR ONLY". |
 | `DEGRADED` | Recent checks failed. The list in use is not stale yet. With a hash file, a short `DEGRADED` period after a new list is published is normal. See [How SafeRoom updates the list](#how-saferoom-updates-the-list). |
 | `STALE` | No check succeeded for three refresh intervals. |
-| `NO LIST` | No list is loaded. Every query passes. |
+| `NO LIST` | No list is loaded. Every query passes. With `PermitOnly`, only permitted names resolve. |
 | `NOT RUNNING` | The extension or the proxy does not answer. |
 | `TAMPERED` | The app at `/Applications/SafeRoom.app` is not signed by the SafeRoom developer. Its output is not trusted. |
 | `NOT INSTALLED` | The app is not in `/Applications`. |
@@ -206,6 +274,6 @@ log stream --predicate 'subsystem == "com.oldsalt.saferoom"'
 |---|---|
 | `provider` | Start, stop, and the policy in use. Each policy value that SafeRoom ignores, with the reason. The token and the URLs of ignored values are never logged. |
 | `list` | Downloads, rejections with the reason, and invalid lines. |
-| `block` | Each blocked query or answer, with the rule and the app that asked. |
+| `block` | Each blocked query or answer, with the rule and the app that asked. In monitor mode, each lookup that SafeRoom would have blocked, as a `would block` line. |
 | `flow` | Connection errors. |
 | `event` | Failed event posts, with the reason. |

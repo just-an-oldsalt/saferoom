@@ -40,14 +40,18 @@ public enum ListUpdate {
     ///   - status: HTTP status, or 200 for a local file.
     ///   - expectedSHA256: the hash file's content, when the policy has one.
     ///   - current: the list in use now, or nil when none has loaded.
+    ///   - sameSource: false when `current` came from another source, for
+    ///     example the old ListURL. The `MaxChangePercent` check compares a
+    ///     feed with itself only; across a source change it would reject the
+    ///     new feed forever.
     public static func evaluate(
         status: Int, body: Data, expectedSHA256: String?,
-        current: CompiledList?, policy: ProviderPolicy
+        current: CompiledList?, policy: ProviderPolicy, sameSource: Bool = true
     ) -> Outcome {
-        // Conditional headers are sent only with a list loaded, so a 304
-        // with none is wrong; treating it as success would skip the
-        // local-file fallback.
-        if status == 304 { return current == nil ? .reject(.httpStatus(304)) : .unchanged }
+        // Conditional headers are sent only with a list loaded and no new
+        // hash, so a 304 otherwise is wrong. Treating it as success would
+        // skip the local-file fallback, or keep the old list as current.
+        if status == 304 { return current == nil || expectedSHA256 != nil ? .reject(.httpStatus(304)) : .unchanged }
         guard status == 200 else { return .reject(.httpStatus(status)) }
         guard body.count <= policy.maxListBytes else {
             return .reject(.tooLarge(bytes: body.count, limit: policy.maxListBytes))
@@ -63,7 +67,8 @@ public enum ListUpdate {
         if let current, current.sourceSHA256 == sha { return .unchanged }
 
         let (list, invalid) = CompiledList.compile(body)
-        if let rejection = sanityCheck(new: list, current: current, maxChangePercent: policy.maxChangePercent) {
+        let limit = sameSource ? policy.maxChangePercent : 0
+        if let rejection = sanityCheck(new: list, current: current, maxChangePercent: limit) {
             return .reject(rejection)
         }
         return .accept(list, invalid: invalid)
@@ -142,6 +147,21 @@ public struct FetchState: Codable, Sendable, Equatable {
     public var lastSuccessAt: Date?
     /// When the list now in the cache was installed.
     public var listInstalledAt: Date?
+    /// Hex SHA-256 of the list that `url` served and that the validators
+    /// belong to. The list in use can differ: a local-file fallback, or a
+    /// cache write that failed. Then the validators must not be sent, or a
+    /// 304 would keep that other list as current.
+    public var listSHA256: String?
+
+    /// True when `list` is the one `url` last served.
+    public func servedByURL(_ list: CompiledList?) -> Bool {
+        guard let list, let listSHA256 else { return false }
+        return listSHA256 == list.sourceSHA256.map { String(format: "%02x", $0) }.joined()
+    }
+
+    public mutating func markServed(_ list: CompiledList) {
+        listSHA256 = list.sourceSHA256.map { String(format: "%02x", $0) }.joined()
+    }
 
     public init(url: String? = nil, etag: String? = nil, lastModified: String? = nil) {
         self.url = url
@@ -156,6 +176,7 @@ public struct FetchState: Codable, Sendable, Equatable {
         self.url = url
         etag = nil
         lastModified = nil
+        listSHA256 = nil
     }
 }
 

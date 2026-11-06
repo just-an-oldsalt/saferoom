@@ -113,19 +113,30 @@ private struct Header: View {
 
     private var state: DisplayState {
         guard let status else { return .offline }
-        return DisplayState(status.health())
+        let health = status.health()
+        // A list problem outranks monitor mode: both mean "not blocking",
+        // and the list problem is the one to fix.
+        if status.policy.monitorOnly == true, health == .ok { return .monitoring }
+        return DisplayState(health)
     }
 
     private var detail: String {
         guard let status else { return note ?? problem ?? "Connecting to the extension." }
         let list = status.list.map { "\($0.domainRules.formatted()) domains and \(($0.v4Ranges + $0.v6Ranges).formatted()) address ranges" }
         switch status.health() {
+        case .ok where status.policy.monitorOnly == true:
+            let would = status.counters.wouldBlock ?? 0
+            return "Monitor mode: nothing is blocked. \(would.formatted()) lookups would have been blocked since the extension started."
+        case .ok where status.policy.permitListCount != nil:
+            return "Permit-only mode: only names on the permit list resolve. Blocking \(list ?? "the threat list"). The list is current."
         case .ok:
             return "Blocking \(list ?? "the threat list"). The list is current."
         case .degraded:
             return "Blocking with the current list. The last \(status.consecutiveFailures) update checks failed: \(status.lastAttempt?.detail ?? "unknown error")."
         case .stale:
             return "Blocking with an old list. No update check succeeded for three refresh intervals."
+        case .noList where status.policy.permitListCount != nil:
+            return "No threat list is loaded. Only names on the permit list resolve."
         case .noList:
             return "No threat list is loaded. DNS works, but nothing is blocked."
         }
@@ -134,7 +145,7 @@ private struct Header: View {
 
 /// The four health states plus "the extension does not answer".
 private enum DisplayState {
-    case protected, degraded, stale, unprotected, offline
+    case protected, monitoring, degraded, stale, unprotected, offline
 
     init(_ health: ExtensionStatus.Health) {
         switch health {
@@ -148,6 +159,7 @@ private enum DisplayState {
     var title: String {
         switch self {
         case .protected: "Protected"
+        case .monitoring: "Monitoring only"
         case .degraded: "Update problem"
         case .stale: "List out of date"
         case .unprotected: "Not blocking"
@@ -158,6 +170,7 @@ private enum DisplayState {
     var symbol: String {
         switch self {
         case .protected: "checkmark.shield.fill"
+        case .monitoring: "eye.fill"
         case .degraded: "exclamationmark.shield.fill"
         case .stale: "clock.badge.exclamationmark.fill"
         case .unprotected: "xmark.shield.fill"
@@ -168,7 +181,7 @@ private enum DisplayState {
     var tint: Color {
         switch self {
         case .protected: .green
-        case .degraded, .stale: .orange
+        case .monitoring, .degraded, .stale: .orange
         case .unprotected: .red
         case .offline: .secondary
         }
@@ -221,10 +234,21 @@ private struct Metrics: View {
         HStack(spacing: 10) {
             Metric(value: (status.list?.domainRules ?? 0).formatted(.number.notation(.compactName)),
                    label: "Domains", symbol: "globe")
-            Metric(value: ((status.list?.v4Ranges ?? 0) + (status.list?.v6Ranges ?? 0)).formatted(.number.notation(.compactName)),
-                   label: "IP ranges", symbol: "point.3.connected.trianglepath.dotted")
-            Metric(value: (c.blockedQueries + c.blockedAnswers).formatted(.number.notation(.compactName)),
-                   label: "Blocked", symbol: "hand.raised.fill", tint: .red)
+            if status.policy.permitListCount != nil {
+                Metric(value: (c.notPermitted ?? 0).formatted(.number.notation(.compactName)),
+                       label: status.policy.monitorOnly == true ? "Not permitted" : "Denied",
+                       symbol: "nosign", tint: .orange)
+            } else {
+                Metric(value: ((status.list?.v4Ranges ?? 0) + (status.list?.v6Ranges ?? 0)).formatted(.number.notation(.compactName)),
+                       label: "IP ranges", symbol: "point.3.connected.trianglepath.dotted")
+            }
+            if status.policy.monitorOnly == true {
+                Metric(value: (c.wouldBlock ?? 0).formatted(.number.notation(.compactName)),
+                       label: "Would block", symbol: "eye.fill", tint: .orange)
+            } else {
+                Metric(value: (c.blockedQueries + c.blockedAnswers).formatted(.number.notation(.compactName)),
+                       label: "Blocked", symbol: "hand.raised.fill", tint: .red)
+            }
             Metric(value: c.queries.formatted(.number.notation(.compactName)),
                    label: "Lookups checked", symbol: "magnifyingglass")
         }
@@ -296,6 +320,7 @@ private struct PolicySection: View {
             Row("Integrity check", policy.sha256Check ? "SHA-256 file" : "TLS only")
             Row("Refresh interval", Duration.seconds(policy.refreshSeconds).formatted(.units(allowed: [.hours, .minutes], width: .wide)))
             Row("Allow list", "\(policy.allowListCount) entries")
+            if let permit = policy.permitListCount { Row("Permit only", "\(permit) entries") }
             Row("Never-block hosts", "\(policy.neverBlockHostCount) entries")
             if let eventURL = policy.eventURL { Row("Block events", eventURL, mono: true) }
             if editable {

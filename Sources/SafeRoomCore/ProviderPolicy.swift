@@ -46,6 +46,19 @@ public struct ProviderPolicy: Sendable, Equatable {
     /// trust check applies. Empty when the key is present but holds no
     /// usable pin: every post is refused (`ServerPins`).
     public var eventServerPins: [Data]?
+    /// `EventAllQueries`: every answered lookup goes to `eventURL`, not only
+    /// blocks. Needs `eventURL`.
+    public var eventAllQueries = false
+    /// `MonitorOnly`: block nothing, and report what would have been
+    /// blocked. For a trial of a new list or a first rollout.
+    public var monitorOnly = false
+    /// `PermitList`: with `permitOnly`, the only names that resolve, besides
+    /// `AllowList` and the never-block set. The threat list still applies
+    /// to them.
+    public var permitList: [DomainRule] = []
+    /// `PermitOnly`: answer NXDOMAIN for every name not on `permitList`.
+    /// Off when the permit list is empty, so a typo cannot cut a Mac off.
+    public var permitOnly = false
     /// True when the SafeRoom app wrote this policy (`ConfiguredBy = app`),
     /// not an MDM profile. Only the app's window reads it, to decide whether
     /// the user may edit the policy (`ConfigurationAccess`).
@@ -96,6 +109,17 @@ public struct ProviderPolicy: Sendable, Equatable {
         eventAuth = Self.auth(config["EventAuth"])
         if let value = config["EventServerPins"] { eventServerPins = pins("EventServerPins", value) }
         allowTopLevelBlocks = config["AllowTopLevelBlocks"] as? Bool ?? false
+        eventAllQueries = bool("EventAllQueries", config)
+        monitorOnly = bool("MonitorOnly", config)
+        permitList = rules("PermitList", config)
+        permitOnly = bool("PermitOnly", config)
+        if permitOnly, permitList.isEmpty {
+            // Every name outside the never-block set would fail. That is
+            // far more likely a profile mistake than an intent.
+            ignored.append("PermitOnly: needs a PermitList with at least one usable entry")
+            permitOnly = false
+        }
+        if eventAllQueries, eventURL == nil { ignored.append("EventAllQueries: needs EventURL") }
         configuredByApp = config[Self.configuredByKey] as? String == Self.configuredByApp
     }
 
@@ -117,7 +141,7 @@ public struct ProviderPolicy: Sendable, Equatable {
     public func blocklist(_ list: CompiledList) -> Blocklist {
         Blocklist(
             list: list, allow: allowList + listHostRules, neverBlock: effectiveNeverBlock,
-            allowTopLevelBlocks: allowTopLevelBlocks)
+            allowTopLevelBlocks: allowTopLevelBlocks, permit: permitOnly ? permitList : nil)
     }
 
     // MARK: - Value parsing
@@ -169,6 +193,16 @@ public struct ProviderPolicy: Sendable, Equatable {
                 return nil
             }
         }
+    }
+
+    /// A wrong type is logged, not silently read as false: `MonitorOnly`
+    /// written as the string "true" must not leave a Mac blocking when the
+    /// admin meant to monitor, or the reverse.
+    private mutating func bool(_ key: String, _ config: [String: Any]) -> Bool {
+        guard let value = config[key] else { return false }
+        if let flag = value as? Bool { return flag }
+        ignored.append("\(key): must be a boolean")
+        return false
     }
 
     /// Pins are public values, so the bad ones are logged in full.

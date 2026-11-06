@@ -7,7 +7,8 @@ import SafeRoomCore
 /// so the proxy blocks from its first query. Then a refresh loop: download
 /// (or read the local file), check with `ListUpdate`, install, write the
 /// cache, sleep. Failures retry with backoff and keep the current list.
-/// With no list at all, every query passes (fail-open).
+/// With no list at all, every query passes (fail-open), except that
+/// `PermitOnly` still denies names that are not permitted.
 actor ListLoader {
     let policy: ProviderPolicy
     let store: BlocklistStore
@@ -19,6 +20,10 @@ actor ListLoader {
     /// Set by stop(). A refresh still running then must not start a new loop
     /// for a policy that is no longer in force.
     private var stopped = false
+    /// Set by start(). A manual refresh before it would race the cache load.
+    private var started = false
+    /// False after a failed cache write, until the next install.
+    private var cacheWritten = true
     private var lastManualRefresh: ContinuousClock.Instant?
     /// Any user can ask for a refresh through the app, so a loop of requests
     /// must not turn into a loop of downloads.
@@ -39,10 +44,14 @@ actor ListLoader {
     }
 
     func start() {
+        // The policy's modes apply before any list loads: with PermitOnly,
+        // a Mac with no threat list must still deny unpermitted names.
+        store.replace(policy.blocklist(.empty))
         if let cached = Self.loadCache() {
             // The cached list is as old as its install, not as this start.
             install(cached, invalid: [], from: "cache", at: state.listInstalledAt)
         }
+        started = true
         loop = Task { await run() }
     }
 
@@ -75,14 +84,13 @@ actor ListLoader {
     }
 
     /// Refreshes at once and restarts the timer from now. A refresh already
-    /// running is not doubled; the caller gets the status when it is done.
-    /// Returns false when the request was refused (too soon, already running,
-    /// or stopped).
+    /// running is not doubled. Returns false at once when the request was
+    /// refused (too soon, already running, not started, or stopped).
     @discardableResult
     func refreshNow() async -> Bool {
         let now = ContinuousClock.now
         if let last = lastManualRefresh, now - last < Self.manualRefreshInterval { return false }
-        guard !refreshing, !stopped else { return false }
+        guard started, !refreshing, !stopped else { return false }
         lastManualRefresh = now
         loop?.cancel()
         let delay = await cycle()
@@ -140,16 +148,21 @@ actor ListLoader {
             // said it changed. A 304 with no list in memory would leave the
             // proxy with nothing to install, and a 304 after a new hash would
             // count as a success with the old list.
-            let conditional = current != nil && expected == nil
+            // The validators also must belong to the list in use, not to a
+            // list this URL served before a fallback to the local file.
+            let sameSource = state.servedByURL(current)
+            let conditional = current != nil && expected == nil && sameSource
             let response = try await fetcher.fetch(url, state: conditional ? state : nil)
             let accepted = apply(
                 ListUpdate.evaluate(
                     status: response.status, body: response.body, expectedSHA256: expected,
-                    current: current, policy: policy),
+                    current: current, policy: policy, sameSource: sameSource),
                 source: url.absoluteString)
-            if accepted, response.status == 200 {
+            if accepted, response.status == 200, !stopped, cacheWritten, let current {
                 state.etag = response.etag
                 state.lastModified = response.lastModified
+                state.markServed(current)
+                Self.saveFetchState(state)
             }
             return accepted
         } catch {
@@ -188,6 +201,9 @@ actor ListLoader {
 
     /// True unless the update was rejected.
     private func apply(_ outcome: ListUpdate.Outcome, source rawSource: String) -> Bool {
+        // A refresh can finish after stop(), for example a manual one. Its
+        // policy is no longer in force, so it must not install or cache.
+        guard !stopped else { return false }
         let source = ExtensionStatus.redact(rawSource)
         switch outcome {
         case .unchanged:
@@ -196,7 +212,11 @@ actor ListLoader {
             return true
         case .accept(let list, let invalid):
             install(list, invalid: invalid, from: source)
-            Self.writeCache(list)
+            // If the cache write fails, the next start loads an older list.
+            // Forget which list the validators belong to, so that a 304 then
+            // cannot make that older list current.
+            cacheWritten = Self.writeCache(list)
+            if !cacheWritten { state.listSHA256 = nil }
             state.listInstalledAt = Date()
             Self.saveFetchState(state)
             record(source, .accepted)
@@ -242,7 +262,8 @@ actor ListLoader {
         }
     }
 
-    private static func writeCache(_ list: CompiledList) {
+    @discardableResult
+    private static func writeCache(_ list: CompiledList) -> Bool {
         write(list.serialized(), to: "blocklist.cache")
     }
 
@@ -258,13 +279,16 @@ actor ListLoader {
         if let data = try? JSONEncoder().encode(state) { write(data, to: "fetch-state.json") }
     }
 
-    private static func write(_ data: Data, to name: String) {
-        guard let url = container?.appendingPathComponent(name) else { return }
+    @discardableResult
+    private static func write(_ data: Data, to name: String) -> Bool {
+        guard let url = container?.appendingPathComponent(name) else { return false }
         do {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try data.write(to: url, options: .atomic)
+            return true
         } catch {
             Log.list.error("cannot write \(name, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return false
         }
     }
 }

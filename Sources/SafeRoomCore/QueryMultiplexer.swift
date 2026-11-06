@@ -72,6 +72,11 @@ public struct QueryMultiplexer<Context> {
 
     public mutating func removeAll() { pending.removeAll() }
 
+    /// True when `register` can match the answer to this query. A query it
+    /// cannot match must still be forwarded, on its own socket.
+    public static func canMatch(_ query: [UInt8]) -> Bool { questionKey(query) != nil }
+
+
     /// Lowercased name, type, and class of the first question. Resolvers may
     /// echo the name in another case (0x20 encoding), so case is ignored.
     static func questionKey(_ packet: [UInt8]) -> [UInt8]? {
