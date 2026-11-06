@@ -8,7 +8,7 @@
 # closes an open SafeRoom window, and its post-install script runs
 # `SafeRoom --activate`, which submits the system extension, then opens the
 # window again if it was open. With the MDM
-# profile (mdm/saferoom.mobileconfig) installed first, macOS approves the
+# profile (rendered from mdm/saferoom.mobileconfig.in) installed first, macOS approves the
 # extension with no prompt.
 #
 # INSTALLER_IDENTITY: the "Developer ID Installer" identity that signs the
@@ -17,7 +17,8 @@
 # installs, but Gatekeeper refuses it on double-click.
 #
 # The MDM profiles and the Jamf script are rendered with this build's
-# identity into $OUT/mdm/, ready to upload.
+# identity from the mdm/*.in templates into $OUT/mdm/, ready to upload. The
+# templates end in .in so that nobody can upload one by mistake.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -134,7 +135,7 @@ if [[ -n "$INSTALLER_IDENTITY" ]]; then
 fi
 mkdir -p "$OUT/mdm"
 for f in saferoom.mobileconfig saferoom-bypass-controls.mobileconfig jamf-extension-attribute.sh; do
-    render "$HERE/mdm/$f" "$OUT/mdm/$f"
+    render "$HERE/mdm/$f.in" "$OUT/mdm/$f"
 done
 plutil -lint "$OUT/mdm/"*.mobileconfig >/dev/null
 

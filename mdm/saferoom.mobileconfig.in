@@ -6,11 +6,13 @@
   Install through MDM, as a device (computer-level) profile. macOS accepts the
   System Extensions payload only from MDM.
 
+  This file is a template, and its .in name stops Jamf and macOS from
+  accepting it. Do not upload it. tools/package.sh fills in __TEAM_ID__,
+  __APP_ID__, __EXT_ID__ and __EXT_REQUIREMENT__, and writes
+  saferoom.mobileconfig to the release folder. Upload that copy.
+
   Before you deploy:
   - Replace the ProviderConfiguration values with your own (docs/mdm.md).
-  - __TEAM_ID__, __APP_ID__, __EXT_ID__ and __EXT_REQUIREMENT__ are filled in
-    by tools/package.sh, which writes ready copies to the release folder.
-    Use those.
   - Generate new PayloadUUID values (uuidgen) for your organization.
 
   The SafeRoom app must be in /Applications, and must launch once (for
@@ -21,8 +23,8 @@
 <dict>
 	<key>PayloadContent</key>
 	<array>
-		<!-- 1. Approve the system extension with no user prompt, and stop
-		        users from turning it off. -->
+		<!-- 1. Approve the system extension with no user prompt.
+		        NonRemovableSystemExtensions stops users from removing it. -->
 		<dict>
 			<key>PayloadType</key>
 			<string>com.apple.system-extension-policy</string>
@@ -34,8 +36,12 @@
 			<integer>1</integer>
 			<key>PayloadDisplayName</key>
 			<string>SafeRoom system extension</string>
+			<!-- true lets users approve OTHER system extensions, such as
+			     the Karabiner-Elements driver. false blocks every system
+			     extension on the Mac that no profile lists (docs/mdm.md).
+			     SafeRoom's own approval does not depend on this key. -->
 			<key>AllowUserOverrides</key>
-			<false/>
+			<true/>
 			<key>AllowedSystemExtensions</key>
 			<dict>
 				<key>__TEAM_ID__</key>
@@ -120,6 +126,24 @@
 				</dict>
 				<key>EventIntervalSeconds</key>
 				<integer>10</integer>
+				<!-- true sends every answered lookup to EventURL, not only
+				     blocks. Many more requests: see "All lookups" in
+				     docs/mdm.md before you turn it on. -->
+				<key>EventAllQueries</key>
+				<false/>
+				<!-- true blocks nothing and reports what would be blocked.
+				     For a trial of a new list or a first rollout. -->
+				<key>MonitorOnly</key>
+				<false/>
+				<!-- true answers NXDOMAIN for every name not on PermitList,
+				     AllowList, or the never-block set. Try it with MonitorOnly
+				     first (docs/mdm.md, "Permit-only mode"). -->
+				<key>PermitOnly</key>
+				<false/>
+				<key>PermitList</key>
+				<array>
+					<string>yourcompany.com</string>
+				</array>
 				<!-- Never blocked. Same forms as the list. -->
 				<key>AllowList</key>
 				<array>

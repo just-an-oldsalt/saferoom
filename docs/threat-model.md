@@ -19,7 +19,7 @@ Each block goes to the unified log with the name, the rule, and the signing ID o
 
 | Path | Why it passes | What to do |
 |---|---|---|
-| DNS over HTTPS, TLS, or QUIC from an app | The lookup is encrypted and does not use port 53. | Deploy `mdm/saferoom-bypass-controls.mobileconfig` for the browsers. For other apps, add the domains of public DoH services to the list, for example `dns.google` and `cloudflare-dns.com`. |
+| DNS over HTTPS, TLS, or QUIC from an app | The lookup is encrypted and does not use port 53. | Deploy the rendered `saferoom-bypass-controls.mobileconfig` for the browsers. For other apps, add the domains of public DoH services to the list, for example `dns.google` and `cloudflare-dns.com`. |
 | DNS over HTTPS or TLS sent to an IP address | No name is looked up, so a list of DoH domains does not help. DoT uses port 853. | Block outbound 853, and 443 to known public resolver addresses, with a firewall or EDR. Restrict which apps users can install. |
 | A browser outside the bypass profile | The profile covers Chrome, Edge, Brave, and Firefox. Arc, Opera, Vivaldi, and others have their own DoH settings. | Add a payload for each browser you allow, or block the others. |
 | iCloud Private Relay | Safari lookups go through Apple's relay. | The bypass-controls profile turns Private Relay off, but only on a supervised Mac (Automated Device Enrollment). On other Macs, users can turn it on. |
@@ -124,4 +124,3 @@ The published binaries are signed with the maintainer's personal Developer ID. I
 - The client certificate (mTLS) download. See [mtls-okta.md](mtls-okta.md).
 - Deployment through Jamf Pro, including the silent approval of the extension and the delivery of the policy in `VendorData`.
 - The Jamf extension attribute, run as root.
-- How the proxy behaves after an edit of the profile in Jamf: an immediate restart, or the next start only.
